@@ -1,6 +1,7 @@
 # lifesight_dashboard_v3_updated.py
 """
-Lifesight-themed Marketing Performance Streamlit Dashboard
+Updated Lifesight-themed Marketing Performance Streamlit Dashboard
+
 """
 
 import streamlit as st
@@ -205,6 +206,15 @@ def compute_pop(cur, prev):
     except:
         return None
 
+def delta_html(cur, prev):
+    """Return HTML snippet for percent change vs prev period (green up/red down)."""
+    pop = compute_pop(cur, prev)
+    if pop is None:
+        return ""
+    sym = "▲" if pop > 0 else "▼"
+    color = "#059669" if pop > 0 else "#dc2626"
+    return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
+
 # -----------------------
 # Plot builders with titles/subtitles
 # -----------------------
@@ -366,19 +376,21 @@ st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</str
 # Load data
 df = generate_mock_data(months_before=3, months_after=3)
 
-# FILTER ROW (horizontal) — channel, campaign, creative, date range
-st.markdown("### Filters")
-st.markdown("Use the filters below to customise all calculations and charts. Filters apply to all tabs and exports.")
+# FILTER ROW (horizontal) — concise headers per control
 f1, f2, f3, f4, f5 = st.columns([1.2,1.2,1.2,1.6,0.4])
 with f1:
-    channel = st.selectbox("Select Channel", ["All"] + sorted(df["channel"].unique().tolist()), index=0)
+    st.markdown("**Channel**")
+    channel = st.selectbox("", ["All"] + sorted(df["channel"].unique().tolist()), index=0, key="filter_channel")
 with f2:
-    campaign = st.selectbox("Select Campaign", ["All"] + sorted(df["campaign"].unique().tolist()), index=0)
+    st.markdown("**Campaign**")
+    campaign = st.selectbox("", ["All"] + sorted(df["campaign"].unique().tolist()), index=0, key="filter_campaign")
 with f3:
-    creative = st.selectbox("Select Creative", ["All"] + sorted(df["creative"].unique().tolist()), index=0)
+    st.markdown("**Creative**")
+    creative = st.selectbox("", ["All"] + sorted(df["creative"].unique().tolist()), index=0, key="filter_creative")
 with f4:
-    start_date = st.date_input("Start Date", value=df["date"].min().date())
-    end_date = st.date_input("End Date", value=df["date"].max().date())
+    st.markdown("**Date range**")
+    start_date = st.date_input("", value=df["date"].min().date(), key="filter_start")
+    end_date = st.date_input("", value=df["date"].max().date(), key="filter_end")
 
 # subset data according to filters
 subset = df.copy()
@@ -525,36 +537,53 @@ with tabs[0]:
 with tabs[1]:
     st.header("CMO View — Marketing Effectiveness & Diagnostics")
 
-    # --- CMO KPI Scorecards (placed at the top) — HTML cards for visibility
+    # --- CMO KPI Scorecards (placed at the top) — HTML cards with delta vs prev
     st.subheader("CMO KPIs")
     c1, c2, c3, c4 = st.columns(4, gap="large")
 
+    # compute previous metrics for CMO KPIs
+    prev_impressions = prev_subset["impressions"].sum()
+    prev_clicks = prev_subset["clicks"].sum()
+    prev_spend = prev_subset["spend"].sum()
+    prev_conversions = prev_subset["conversions"].sum()
+
+    # Total Impressions
     with c1:
         total_imp = subset['impressions'].sum()
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Total Impressions</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi-value'>{total_imp:,}</div>", unsafe_allow_html=True)
+        st.markdown(delta_html(total_imp, prev_impressions), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Click-Through Rate
     with c2:
         ctr_val = subset['clicks'].sum() / subset['impressions'].sum() if subset['impressions'].sum() > 0 else 0
+        prev_ctr = prev_clicks / prev_impressions if prev_impressions > 0 else None
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Click-Through Rate</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi-value'>{ctr_val*100:.2f}%</div>", unsafe_allow_html=True)
+        st.markdown(delta_html(ctr_val, prev_ctr), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Avg. CPM
     with c3:
         cpm_val = subset['spend'].sum() / (subset['impressions'].sum()/1000) if subset['impressions'].sum() > 0 else np.nan
+        prev_cpm = prev_spend / (prev_impressions/1000) if prev_impressions > 0 else None
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Avg. CPM</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi-value'>{'₹{:.2f}'.format(cpm_val) if not np.isnan(cpm_val) else 'N/A'}</div>", unsafe_allow_html=True)
+        st.markdown(delta_html(cpm_val, prev_cpm), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Avg. Conversion Rate
     with c4:
         cvr_val = subset['conversions'].sum() / subset['clicks'].sum() if subset['clicks'].sum() > 0 else 0
+        prev_cvr = prev_conversions / prev_clicks if prev_clicks > 0 else None
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Avg. Conversion Rate</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi-value'>{cvr_val*100:.2f}%</div>", unsafe_allow_html=True)
+        st.markdown(delta_html(cvr_val, prev_cvr), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("**ROAS by Channel** — quick comparison to guide budget allocation")
@@ -587,45 +616,66 @@ with tabs[1]:
 with tabs[2]:
     st.header("CFO View — Financial Efficiency & Profitability")
 
-    # --- CFO KPI Scorecards (placed at the top) — HTML cards for visibility
+    # --- CFO KPI Scorecards (placed at the top) — HTML cards with delta vs prev
     st.subheader("CFO KPIs")
     d1, d2, d3, d4 = st.columns(4, gap="large")
 
+    # compute previous metrics for CFO KPIs
+    prev_revenue = prev_subset["revenue"].sum()
+    prev_spend = prev_subset["spend"].sum()
+    prev_cogs = prev_subset["cogs"].sum()
+    prev_orders = prev_subset["orders"].sum()
+    prev_returns = prev_subset["returns"].sum()
+    prev_aov = prev_subset["aov"].mean() if not prev_subset.empty else None
+
+    # Marketing ROI
     with d1:
         if subset["spend"].sum() > 0:
             roi_val = (subset["revenue"].sum() - subset["spend"].sum()) / subset["spend"].sum()
-            roi_text = f"{roi_val*100:.2f}%"
         else:
-            roi_text = "N/A"
+            roi_val = None
+        prev_roi = (prev_revenue - prev_spend) / prev_spend if prev_spend > 0 else None
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Marketing ROI</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{roi_text}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{f'{roi_val*100:.2f}%'}" if roi_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        if roi_val is not None:
+            st.markdown(delta_html(roi_val, prev_roi), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Gross Margin Rate
     with d2:
         if subset["revenue"].sum() > 0:
             gm_val = (subset["revenue"].sum() - subset["cogs"].sum()) / subset["revenue"].sum()
-            gm_text = f"{gm_val*100:.2f}%"
         else:
-            gm_text = "N/A"
+            gm_val = None
+        prev_gm = (prev_revenue - prev_cogs) / prev_revenue if prev_revenue > 0 else None
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Gross Margin Rate</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{gm_text}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{f'{gm_val*100:.2f}%'}" if gm_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        if gm_val is not None:
+            st.markdown(delta_html(gm_val, prev_gm), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Average Order Value
     with d3:
-        aov_val = subset['aov'].mean()
+        aov_val = subset['aov'].mean() if not subset.empty else None
+        prev_aov_val = prev_aov
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Average Order Value</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>₹{aov_val:.2f}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>₹{aov_val:.2f}</div>" if aov_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        if aov_val is not None:
+            st.markdown(delta_html(aov_val, prev_aov_val), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Refund & Return Rate
     with d4:
-        refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum() > 0 else np.nan
-        refund_text = f"{refund_rate*100:.2f}%" if not np.isnan(refund_rate) else "N/A"
+        refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum() > 0 else None
+        prev_refund = prev_returns / prev_orders if prev_orders > 0 else None
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Refund & Return Rate</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{refund_text}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{f'{refund_rate*100:.2f}%'}" if refund_rate is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        if refund_rate is not None:
+            st.markdown(delta_html(refund_rate, prev_refund), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     fig_contrib = plot_contribution_waterfall(subset)
@@ -650,8 +700,8 @@ with tabs[2]:
 
     st.markdown("**Key financial KPIs**")
     aov = subset["aov"].mean()
-    refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
+    refund_rate_display = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
     st.metric("Average Order Value (AOV)", f"₹{aov:,.2f}")
-    st.metric("Refund / Return Rate", f"{refund_rate*100:.2f}%" if not np.isnan(refund_rate) else "N/A")
+    st.metric("Refund / Return Rate", f"{refund_rate_display*100:.2f}%" if not np.isnan(refund_rate_display) else "N/A")
 
 st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs.")
