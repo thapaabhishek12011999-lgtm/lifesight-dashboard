@@ -1,7 +1,6 @@
 # lifesight_dashboard_v3_updated.py
 """
 Updated Lifesight-themed Marketing Performance Streamlit Dashboard
-
 """
 
 import streamlit as st
