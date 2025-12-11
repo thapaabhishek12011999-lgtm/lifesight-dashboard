@@ -1,6 +1,8 @@
 # lifesight_dashboard_v4.py
 """
 Lifesight dashboard v4
+
+Based on prior file/layers. :contentReference[oaicite:1]{index=1}
 """
 import streamlit as st
 import pandas as pd
@@ -472,98 +474,28 @@ with left_col:
     st.markdown(f"<div class='kpi-large'><div style='font-size:14px;color:#6b7280'>Total Net Revenue</div><div style='font-size:28px;font-weight:700'>₹{rev:,.0f}</div><div style='margin-top:6px;color:#374151'>{delta_html}</div></div>", unsafe_allow_html=True)
 
 with right_col:
-    # supporting KPIs in F-pattern (top-left emphasis)
-    cols = st.columns(4, gap="medium")
-
-    # Helper to safely format value & delta
-    def fmt_pct(val):
-        try:
-            if val is None or np.isnan(val):
-                return "N/A"
-            return f"{val*100:.1f}%"
-        except Exception:
-            return "N/A"
-
-    def fmt_num(val, currency=True):
-        try:
-            if val is None or (isinstance(val, float) and np.isnan(val)):
-                return "N/A"
-            if currency:
-                return f"₹{val:,.0f}"
-            return f"{val:.2f}"
-        except Exception:
-            return "N/A"
-
-    def fmt_delta(delta):
-        # delta should be fractional (0.12 => 12%)
-        try:
-            if delta is None or (isinstance(delta, float) and np.isnan(delta)):
-                return "N/A"
-            sign = "▲" if delta > 0 else "▼"
-            return f"{sign} {abs(delta)*100:.1f}%"
-        except Exception:
-            return "N/A"
-
+    k1, k2, k3, k4 = st.columns(4, gap="medium")
     # Gross Profit Margin
-    with cols[0]:
-        gpm = cur_kpis.get("gross_margin", None)
-        gpm_display = fmt_pct(gpm)
-        gpm_delta = compute_pop(gpm, prev_kpis.get("gross_margin", None))
-        gpm_delta_display = fmt_delta(gpm_delta)
-        st.markdown(
-            "<div class='kpi-small'>"
-            "<div class='kpi-label'>Gross Profit Margin</div>"
-            f"<div style='font-size:20px;font-weight:700'>{gpm_display if gpm_display!='N/A' else 'N/A'}</div>"
-            f"<div title='Gross margin = (revenue - COGS)/revenue' style='color:#6b7280'>{gpm_delta_display}</div>"
-            "</div>",
-            unsafe_allow_html=True
-        )
-
+    with k1:
+        gpm = cur_kpis["gross_margin"]
+        gpm_delta = compute_pop(gpm, prev_kpis["gross_margin"])
+        st.markdown(f"<div class='kpi-small'><div style='font-size:13px;color:#6b7280'>Gross Profit Margin</div><div style='font-size:20px;font-weight:700'>{gpm*100:.1f}%</div><div title='Gross margin = (revenue - COGS)/revenue' style='color:#6b7280'>{'▲' if gpm_delta and gpm_delta>0 else '▼' if gpm_delta and gpm_delta<0 else ''} {abs(gpm_delta*100):.1f}%</div></div>", unsafe_allow_html=True)
     # MER
-    with cols[1]:
-        mer = cur_kpis.get("mer", None)
-        mer_display = fmt_num(mer, currency=False) if mer is not None and not (isinstance(mer, float) and np.isnan(mer)) else "N/A"
-        mer_delta = compute_pop(mer, prev_kpis.get("mer", None))
-        mer_delta_display = fmt_delta(mer_delta)
-        st.markdown(
-            "<div class='kpi-small'>"
-            "<div class='kpi-label'>Marketing Efficiency Ratio (MER)</div>"
-            f"<div style='font-size:20px;font-weight:700'>{mer_display}</div>"
-            f"<div title='MER = revenue / marketing spend'>{mer_delta_display}</div>"
-            "</div>",
-            unsafe_allow_html=True
-        )
-
+    with k2:
+        mer = cur_kpis["mer"]
+        mer_delta = compute_pop(mer, prev_kpis["mer"])
+        st.markdown(f"<div class='kpi-small'><div style='font-size:13px;color:#6b7280'>Marketing Efficiency Ratio (MER)</div><div style='font-size:20px;font-weight:700'>{mer:.2f}</div><div title='MER = revenue / marketing spend'>{'▲' if mer_delta and mer_delta>0 else '▼' if mer_delta and mer_delta<0 else ''} {abs(mer_delta*100):.1f}%</div></div>", unsafe_allow_html=True)
     # LTV:CAC
-    with cols[2]:
-        ltvcac = cur_kpis.get("ltv_cac", None)
-        ltvcac_display = fmt_num(ltvcac, currency=False) if ltvcac is not None and not (isinstance(ltvcac, float) and np.isnan(ltvcac)) else "N/A"
-        ltv_delta = compute_pop(ltvcac, prev_kpis.get("ltv_cac", None))
-        ltv_delta_display = fmt_delta(ltv_delta)
-        st.markdown(
-            "<div class='kpi-small'>"
-            "<div class='kpi-label'>LTV : CAC</div>"
-            f"<div style='font-size:20px;font-weight:700'>{ltvcac_display}</div>"
-            f"<div title='LTV divided by CAC'>{ltv_delta_display}</div>"
-            "</div>",
-            unsafe_allow_html=True
-        )
-
+    with k3:
+        ltvcac = cur_kpis["ltv_cac"]
+        ltv_delta = compute_pop(ltvcac, prev_kpis["ltv_cac"])
+        st.markdown(f"<div class='kpi-small'><div style='font-size:13px;color:#6b7280'>LTV : CAC</div><div style='font-size:20px;font-weight:700'>{ltvcac:.2f}</div><div title='LTV divided by CAC'>{'▲' if ltv_delta and ltv_delta>0 else '▼' if ltv_delta and ltv_delta<0 else ''} {abs(ltv_delta*100):.1f}%</div></div>", unsafe_allow_html=True)
     # Total Profit
-    with cols[3]:
-        profit = cur_kpis.get("profit", None)
-        profit_display = fmt_num(profit, currency=True) if profit is not None and not (isinstance(profit, float) and np.isnan(profit)) else "N/A"
-        pf_delta = compute_pop(profit, prev_kpis.get("profit", None))
-        pf_delta_display = fmt_delta(pf_delta)
-        st.markdown(
-            "<div class='kpi-small'>"
-            "<div class='kpi-label'>Total Profit</div>"
-            f"<div style='font-size:20px;font-weight:700'>{profit_display}</div>"
-            f"<div title='Net profit after ads, COGS, returns'>{pf_delta_display}</div>"
-            "</div>",
-            unsafe_allow_html=True
-        )
-        
+    with k4:
+        profit = cur_kpis["profit"]
+        pf_delta = compute_pop(profit, prev_kpis["profit"])
+        st.markdown(f"<div class='kpi-small'><div style='font-size:13px;color:#6b7280'>Total Profit</div><div style='font-size:20px;font-weight:700'>₹{profit:,.0f}</div><div title='Net profit after ads, COGS, returns'>{'▲' if pf_delta and pf_delta>0 else '▼' if pf_delta and pf_delta<0 else ''} {abs(pf_delta*100):.1f}%</div></div>", unsafe_allow_html=True)
+
 # Auto insights
 insights = generate_insights(subset, cur_kpis, prev_kpis, df, prev_start, prev_end)
 insight_html = "<br>".join(insights)
