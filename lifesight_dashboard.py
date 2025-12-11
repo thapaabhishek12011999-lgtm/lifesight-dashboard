@@ -1,6 +1,6 @@
 """
 Lifesight-themed Marketing Performance Streamlit Dashboard
-(Exports removed: PNG / PDF / HTML / CSV)
+(Exports removed; cohort heatmap removed from UI; inverted color for some KPI deltas)
 """
 
 import streamlit as st
@@ -112,7 +112,7 @@ def generate_mock_data(months_before=3, months_after=3, seed=42):
 # -----------------------
 PRIMARY_PURPLE = "#6B21A8"
 ACCENT_GREEN = "#14B8A6"
-CARD_BG = "#FAFAFB"   # changed for better contrast
+CARD_BG = "#FAFAFB"
 PAGE_BG = "#ffffff"
 TEXT_COLOR = "#0f172a"
 
@@ -120,10 +120,8 @@ def inject_css():
     st.markdown(
         f"""
     <style>
-    /* Page background & header bar */
     .stApp {{ background: {PAGE_BG}; color: {TEXT_COLOR}; }}
     .reportview-container .main .block-container{{padding-top:1.5rem; padding-left:2rem; padding-right:2rem;}}
-    /* Top header band to mimic Lifesight */
     .topband {{
         background: linear-gradient(90deg,{PRIMARY_PURPLE} 0%, #7c3aed 100%);
         color: white;
@@ -131,7 +129,6 @@ def inject_css():
         border-radius: 8px;
         margin-bottom: 18px;
     }}
-    /* KPI card style */
     .kpi-large {{
         background: {CARD_BG};
         padding: 18px;
@@ -152,7 +149,6 @@ def inject_css():
         border-radius: 8px;
         color: {TEXT_COLOR};
     }}
-    /* Small text tweaks */
     .kpi-label {{ font-size:14px; color:#374151; }}
     .kpi-value {{ font-size:28px; font-weight:700; color:{TEXT_COLOR}; }}
     .kpi-delta {{ font-size:13px; color:#059669; }}
@@ -203,6 +199,21 @@ def delta_html(cur, prev):
         return ""
     sym = "▲" if pop > 0 else "▼"
     color = "#059669" if pop > 0 else "#dc2626"
+    return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
+
+def delta_html_inverted(cur, prev):
+    """
+    Same as delta_html but inverted color semantics:
+    - A decrease (pop < 0) is treated as positive (green)
+    - An increase (pop > 0) is treated as negative (red)
+    Useful for metrics where reduction is desirable (e.g., CPM, refund rate).
+    """
+    pop = compute_pop(cur, prev)
+    if pop is None:
+        return ""
+    sym = "▲" if pop > 0 else "▼"
+    # invert color: green when pop < 0 (decrease), red when pop > 0 (increase)
+    color = "#059669" if pop < 0 else "#dc2626"
     return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
 
 # -----------------------
@@ -279,6 +290,9 @@ def plot_contribution_waterfall(df):
     return fig
 
 def cohort_ltv_heatmap(df, months=6):
+    """
+    NOTE: function remains for potential future use but is NOT rendered in the UI per current request.
+    """
     orders = df[df["orders"]>0].copy()
     if orders.empty:
         return go.Figure()
@@ -307,13 +321,12 @@ def cohort_ltv_heatmap(df, months=6):
 st.set_page_config(page_title="Lifesight - Marketing Performance", layout="wide")
 inject_css()
 
-# Top purple band (branding)
 st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</strong> — Marketing Performance Dashboard</div>", unsafe_allow_html=True)
 
 # Load data
 df = generate_mock_data(months_before=3, months_after=3)
 
-# FILTER ROW (horizontal) — concise headers per control
+# FILTER ROW
 f1, f2, f3, f4, f5 = st.columns([1.2,1.2,1.2,1.6,0.4])
 with f1:
     st.markdown("**Channel**")
@@ -353,7 +366,7 @@ cur_kpis = compute_exec_kpis(subset)
 prev_subset = df[(df["date"]>=prev_start) & (df["date"]<=prev_end)]
 prev_kpis = compute_exec_kpis(prev_subset)
 
-# KPI area — F-PATTERN (Executive)
+# KPI area
 left, right = st.columns([2,3], gap="large")
 with left:
     st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
@@ -418,7 +431,7 @@ with right:
             st.markdown(f"<div style='color:{colc}'>{'▲' if profit_delta>0 else '▼'} {abs(profit_delta)*100:.1f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-# Auto insight (semi-dynamic)
+# Auto insight
 insight = []
 if rev_delta is not None:
     if rev_delta > 0.05:
@@ -434,7 +447,7 @@ st.markdown(f"<div class='insight'><strong>Insights:</strong><br>{'<br>'.join(in
 
 st.markdown("---")
 
-# TABS: Executive (Overview), CMO, CFO
+# TABS
 tabs = st.tabs(["Executive (Overview)", "CMO View (Marketing)", "CFO View (Finance)"])
 
 # ===== Executive Overview tab =====
@@ -453,8 +466,6 @@ with tabs[0]:
     fig_nr.add_trace(go.Scatter(x=subset_agg["date"], y=subset_agg["new_rev"], stackgroup='one', name='New Customers', line=dict(color=ACCENT_GREEN)))
     fig_nr.update_layout(template="plotly_white", height=300, margin=dict(t=40))
     st.plotly_chart(fig_nr, use_container_width=True)
-
-    # Note: PDF report export removed
 
 # ===== CMO View =====
 with tabs[1]:
@@ -487,14 +498,14 @@ with tabs[1]:
         st.markdown(delta_html(ctr_val, prev_ctr), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Avg. CPM
+    # Avg. CPM (inverted color semantics: decrease = green)
     with c3:
         cpm_val = subset['spend'].sum() / (subset['impressions'].sum()/1000) if subset['impressions'].sum() > 0 else np.nan
         prev_cpm = prev_spend / (prev_impressions/1000) if prev_impressions > 0 else None
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Avg. CPM</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi-value'>{'₹{:.2f}'.format(cpm_val) if not np.isnan(cpm_val) else 'N/A'}</div>", unsafe_allow_html=True)
-        st.markdown(delta_html(cpm_val, prev_cpm), unsafe_allow_html=True)
+        st.markdown(delta_html_inverted(cpm_val, prev_cpm), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # Avg. Conversion Rate
@@ -523,7 +534,6 @@ with tabs[1]:
     diag["cvr"] = (diag["conversions"] / diag["clicks"]).round(4)
     diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], pd.NA)
     st.dataframe(diag.sort_values("revenue", ascending=False).head(100), use_container_width=True)
-    # Note: Diagnostics CSV export removed
 
 # ===== CFO View =====
 with tabs[2]:
@@ -578,7 +588,7 @@ with tabs[2]:
             st.markdown(delta_html(aov_val, prev_aov_val), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Refund & Return Rate
+    # Refund & Return Rate (inverted color semantics: decrease = green)
     with d4:
         refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum() > 0 else None
         prev_refund = prev_returns / prev_orders if prev_orders > 0 else None
@@ -586,7 +596,7 @@ with tabs[2]:
         st.markdown("<div class='kpi-label'>Refund & Return Rate</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi-value'>{f'{refund_rate*100:.2f}%'}" if refund_rate is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
         if refund_rate is not None:
-            st.markdown(delta_html(refund_rate, prev_refund), unsafe_allow_html=True)
+            st.markdown(delta_html_inverted(refund_rate, prev_refund), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     fig_contrib = plot_contribution_waterfall(subset)
@@ -596,11 +606,9 @@ with tabs[2]:
     fig_cac = plot_cac_trend(subset)
     st.plotly_chart(fig_cac, use_container_width=True)
 
-    st.markdown("**Cohort LTV (heatmap)** — revenue evolution for acquisition cohorts")
-    fig_cohort = cohort_ltv_heatmap(subset, months=6)
-    st.plotly_chart(fig_cohort, use_container_width=True)
+    # Cohort LTV visual intentionally removed per request (function retained but not rendered)
 
-    st.markdown("**Key financial KPIs**")
+    # small bottom KPIs (left intact, but heading removed)
     aov = subset["aov"].mean()
     refund_rate_display = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
     st.metric("Average Order Value (AOV)", f"₹{aov:,.2f}")
