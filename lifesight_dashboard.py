@@ -1,4 +1,4 @@
-# lifesight_dashboard_lifesight_theme.py
+# lifesight_dashboard_v3_updated.py
 """
 Lifesight-themed Marketing Performance Streamlit Dashboard
 """
@@ -9,6 +9,16 @@ import numpy as np
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
+import io
+import base64
+from pathlib import Path
+
+# Optional PDF library; use if available
+try:
+    from fpdf import FPDF
+    _HAS_FPDF = True
+except Exception:
+    _HAS_FPDF = False
 
 # -----------------------
 # Mock data generator (daily, 3 months before + 3 months after today)
@@ -288,6 +298,63 @@ def cohort_ltv_heatmap(df, months=6):
     return fig
 
 # -----------------------
+# Export utilities: PDF report & figure -> PNG bytes
+# -----------------------
+def create_pdf_bytes(df, kpis, title="Dashboard Report"):
+    """
+    Returns PDF bytes containing title, KPIs and sample rows.
+    Uses fpdf if available, else returns a plain-text bytes fallback.
+    """
+    if _HAS_FPDF:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=14)
+        pdf.cell(200, 10, txt=title, ln=True, align='C')
+        pdf.ln(6)
+        pdf.set_font("Arial", size=10)
+        for k, v in kpis.items():
+            pdf.cell(0, 8, txt=f"{k}: {v}", ln=True)
+        pdf.ln(4)
+        pdf.cell(0, 8, txt="Sample data (top 10 rows):", ln=True)
+        pdf.ln(2)
+        pdf.set_font("Arial", size=8)
+        for _, row in df.head(10).iterrows():
+            # keep each line short
+            text = ", ".join([f"{c}:{row[c]}" for c in ["date","channel","campaign","impressions","clicks","spend","revenue"] if c in row])
+            pdf.multi_cell(0, 6, txt=text)
+        out = io.BytesIO()
+        pdf.output(out)
+        return out.getvalue()
+    else:
+        # fallback: plain text "report" bytes
+        buf = io.StringIO()
+        buf.write(f"{title}\n\n")
+        buf.write("KPIs:\n")
+        for k, v in kpis.items():
+            buf.write(f"{k}: {v}\n")
+        buf.write("\nSample rows (top 10):\n")
+        buf.write(df.head(10).to_string(index=False))
+        return buf.getvalue().encode("utf-8")
+
+def fig_to_png_bytes(fig):
+    """
+    Attempt to convert a Plotly figure to PNG bytes.
+    Requires kaleido or orca available in the environment for fig.to_image to work.
+    Will return None if conversion fails.
+    """
+    try:
+        # fig.to_image uses kaleido by default if installed
+        img_bytes = fig.to_image(format="png")
+        return img_bytes
+    except Exception:
+        try:
+            import plotly.io as pio
+            img_bytes = pio.to_image(fig, format="png")
+            return img_bytes
+        except Exception:
+            return None
+
+# -----------------------
 # Streamlit app layout
 # -----------------------
 st.set_page_config(page_title="Lifesight - Marketing Performance", layout="wide")
@@ -300,17 +367,18 @@ st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</str
 df = generate_mock_data(months_before=3, months_after=3)
 
 # FILTER ROW (horizontal) — channel, campaign, creative, date range
-st.markdown("**Executive Summary**  \nHigh-level KPIs linking marketing investment to company financial health.")
+st.markdown("### Filters")
+st.markdown("Use the filters below to customise all calculations and charts. Filters apply to all tabs and exports.")
 f1, f2, f3, f4, f5 = st.columns([1.2,1.2,1.2,1.6,0.4])
 with f1:
-    channel = st.selectbox("Channel", ["All"] + sorted(df["channel"].unique().tolist()), index=0)
+    channel = st.selectbox("Select Channel", ["All"] + sorted(df["channel"].unique().tolist()), index=0)
 with f2:
-    campaign = st.selectbox("Campaign", ["All"] + sorted(df["campaign"].unique().tolist()), index=0)
+    campaign = st.selectbox("Select Campaign", ["All"] + sorted(df["campaign"].unique().tolist()), index=0)
 with f3:
-    creative = st.selectbox("Creative", ["All"] + sorted(df["creative"].unique().tolist()), index=0)
+    creative = st.selectbox("Select Creative", ["All"] + sorted(df["creative"].unique().tolist()), index=0)
 with f4:
-    start_date = st.date_input("Start date", value=df["date"].min().date())
-    end_date = st.date_input("End date", value=df["date"].max().date())
+    start_date = st.date_input("Start Date", value=df["date"].min().date())
+    end_date = st.date_input("End Date", value=df["date"].max().date())
 
 # subset data according to filters
 subset = df.copy()
@@ -336,8 +404,7 @@ cur_kpis = compute_exec_kpis(subset)
 prev_subset = df[(df["date"]>=prev_start) & (df["date"]<=prev_end)]
 prev_kpis = compute_exec_kpis(prev_subset)
 
-# KPI area — F-PATTERN
-# Left: large KPI (Total Net Revenue). Right: supporting KPIs in a row.
+# KPI area — F-PATTERN (Executive)
 left, right = st.columns([2,3], gap="large")
 with left:
     st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
@@ -353,9 +420,7 @@ with left:
     st.markdown("</div>", unsafe_allow_html=True)
 
 with right:
-    # supporting KPIs in F-pattern (top-left emphasis)
     cols = st.columns(4, gap="medium")
-    # Gross Profit Margin
     gpm = cur_kpis["gross_margin"]
     prev_gpm = prev_kpis["gross_margin"]
     gpm_delta = compute_pop(gpm, prev_gpm)
@@ -368,7 +433,6 @@ with right:
             st.markdown(f"<div style='color:{colc}'>{'▲' if gpm_delta>0 else '▼'} {abs(gpm_delta)*100:.1f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # MER
     mer = cur_kpis["mer"]
     prev_mer = prev_kpis["mer"]
     mer_delta = compute_pop(mer, prev_mer)
@@ -381,7 +445,6 @@ with right:
             st.markdown(f"<div style='color:{colc}'>{'▲' if mer_delta>0 else '▼'} {abs(mer_delta)*100:.1f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # LTV:CAC
     ltv_cac = cur_kpis["ltv_cac"]
     prev_ltv_cac = prev_kpis["ltv_cac"]
     ltv_delta = compute_pop(ltv_cac, prev_ltv_cac)
@@ -394,7 +457,6 @@ with right:
             st.markdown(f"<div style='color:{colc}'>{'▲' if ltv_delta>0 else '▼'} {abs(ltv_delta)*100:.1f}%</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Total Profit
     profit = cur_kpis["profit"]
     prev_profit = prev_kpis["profit"]
     profit_delta = compute_pop(profit, prev_profit)
@@ -429,11 +491,19 @@ tabs = st.tabs(["Executive (Overview)", "CMO View (Marketing)", "CFO View (Finan
 # ===== Executive Overview tab =====
 with tabs[0]:
     st.subheader("Executive Overview — Revenue & Spend")
-    st.plotly_chart(plot_spend_revenue_trend(subset), use_container_width=True)
+
+    fig_spend_rev = plot_spend_revenue_trend(subset)
+    st.plotly_chart(fig_spend_rev, use_container_width=True)
+
+    # Download buttons: export PNG of this chart (if environment supports)
+    img_bytes = fig_to_png_bytes(fig_spend_rev)
+    if img_bytes is not None:
+        st.download_button("⬇ Download Trend PNG", img_bytes, file_name="revenue_spend_trend.png", mime="image/png")
+    else:
+        st.info("PNG export for chart not available in this environment (requires kaleido).")
+
     st.markdown("**Customer Acquisition & Retention** — New vs Returning revenue over time (quick view)")
-    # simple stacked area: new vs returning revenue proxy
     subset_agg = subset.groupby("date").agg({"revenue":"sum", "new_customers":"sum","returning_customers":"sum"}).reset_index()
-    # proxy split of revenue into new/returning by proportion of customers
     subset_agg["new_rev"] = subset_agg["revenue"] * (subset_agg["new_customers"] / (subset_agg["new_customers"] + subset_agg["returning_customers"] + 1e-9))
     subset_agg["ret_rev"] = subset_agg["revenue"] - subset_agg["new_rev"]
     fig_nr = go.Figure()
@@ -442,13 +512,48 @@ with tabs[0]:
     fig_nr.update_layout(template="plotly_white", height=300, margin=dict(t=40))
     st.plotly_chart(fig_nr, use_container_width=True)
 
+    # Add report export (PDF)
+    report_bytes = create_pdf_bytes(subset, {
+        "Total Revenue (₹)": f"{cur_kpis['total_revenue']:,.2f}",
+        "Total Spend (₹)": f"{cur_kpis['total_spend']:,.2f}",
+        "MER": cur_kpis['mer'],
+        "Gross Margin": f"{cur_kpis['gross_margin']*100:.2f}%"
+    }, title="Lifesight - Executive Report")
+    st.download_button("⬇ Download Dashboard Report (PDF)", report_bytes, file_name="lifesight_dashboard_report.pdf", mime="application/pdf")
+
 # ===== CMO View =====
 with tabs[1]:
     st.header("CMO View — Marketing Effectiveness & Diagnostics")
+
+    # --- CMO KPI Scorecards (placed at the top)
+    st.subheader("CMO KPIs")
+    cmo1, cmo2, cmo3, cmo4 = st.columns(4)
+    with cmo1:
+        st.metric("Total Impressions", f"{subset['impressions'].sum():,}")
+    with cmo2:
+        ctr_val = subset['clicks'].sum() / subset['impressions'].sum() if subset['impressions'].sum() > 0 else 0
+        st.metric("Click-Through Rate", f"{ctr_val*100:.2f}%")
+    with cmo3:
+        cpm_val = subset['spend'].sum() / (subset['impressions'].sum()/1000) if subset['impressions'].sum() > 0 else np.nan
+        st.metric("Avg. CPM", f"₹{cpm_val:.2f}" if not np.isnan(cpm_val) else "N/A")
+    with cmo4:
+        cvr_val = subset['conversions'].sum() / subset['clicks'].sum() if subset['clicks'].sum() > 0 else 0
+        st.metric("Avg. Conversion Rate", f"{cvr_val*100:.2f}%")
+
     st.markdown("**ROAS by Channel** — quick comparison to guide budget allocation")
-    st.plotly_chart(plot_roas_by_channel(subset), use_container_width=True)
+    fig_roas = plot_roas_by_channel(subset)
+    st.plotly_chart(fig_roas, use_container_width=True)
+    img_roas = fig_to_png_bytes(fig_roas)
+    if img_roas is not None:
+        st.download_button("⬇ Download ROAS Chart (PNG)", img_roas, file_name="roas_by_channel.png", mime="image/png")
+
     st.markdown("**Full Marketing Funnel** — identify drop-off points")
-    st.plotly_chart(plot_funnel_bars(subset), use_container_width=True)
+    fig_funnel = plot_funnel_bars(subset)
+    st.plotly_chart(fig_funnel, use_container_width=True)
+    img_funnel = fig_to_png_bytes(fig_funnel)
+    if img_funnel is not None:
+        st.download_button("⬇ Download Funnel Chart (PNG)", img_funnel, file_name="marketing_funnel.png", mime="image/png")
+
     st.markdown("**Campaign & Creative Diagnostics** (Top performing rows)")
     diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
         "spend":"sum","impressions":"sum","clicks":"sum","conversions":"sum","revenue":"sum"
@@ -457,19 +562,61 @@ with tabs[1]:
     diag["cvr"] = (diag["conversions"] / diag["clicks"]).round(4)
     diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], pd.NA)
     st.dataframe(diag.sort_values("revenue", ascending=False).head(100), use_container_width=True)
+    # allow downloading the diagnostics table as CSV
+    csv_buf = diag.sort_values("revenue", ascending=False).to_csv(index=False).encode("utf-8")
+    st.download_button("⬇ Download Diagnostics (CSV)", csv_buf, file_name="campaign_diagnostics.csv", mime="text/csv")
 
 # ===== CFO View =====
 with tabs[2]:
     st.header("CFO View — Financial Efficiency & Profitability")
-    st.plotly_chart(plot_contribution_waterfall(subset), use_container_width=True)
+
+    # --- CFO KPI Scorecards (placed at the top)
+    st.subheader("CFO KPIs")
+    cfo1, cfo2, cfo3, cfo4 = st.columns(4)
+    with cfo1:
+        # Marketing ROI = (Revenue - Spend) / Spend
+        if subset["spend"].sum() > 0:
+            roi_val = (subset["revenue"].sum() - subset["spend"].sum()) / subset["spend"].sum()
+            st.metric("Marketing ROI", f"{roi_val*100:.2f}%")
+        else:
+            st.metric("Marketing ROI", "N/A")
+    with cfo2:
+        if subset["revenue"].sum() > 0:
+            gm_val = (subset["revenue"].sum() - subset["cogs"].sum()) / subset["revenue"].sum()
+            st.metric("Gross Margin Rate", f"{gm_val*100:.2f}%")
+        else:
+            st.metric("Gross Margin Rate", "N/A")
+    with cfo3:
+        aov_val = subset['aov'].mean()
+        st.metric("Average Order Value", f"₹{aov_val:.2f}")
+    with cfo4:
+        refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum() > 0 else np.nan
+        st.metric("Refund & Return Rate", f"{refund_rate*100:.2f}%" if not np.isnan(refund_rate) else "N/A")
+
+    fig_contrib = plot_contribution_waterfall(subset)
+    st.plotly_chart(fig_contrib, use_container_width=True)
+    img_contrib = fig_to_png_bytes(fig_contrib)
+    if img_contrib is not None:
+        st.download_button("⬇ Download Contribution Chart (PNG)", img_contrib, file_name="contribution_waterfall.png", mime="image/png")
+
     st.markdown("**CAC Trend & Cost Efficiency** — monitor CAC vs historical performance")
-    st.plotly_chart(plot_cac_trend(subset), use_container_width=True)
+    fig_cac = plot_cac_trend(subset)
+    st.plotly_chart(fig_cac, use_container_width=True)
+    img_cac = fig_to_png_bytes(fig_cac)
+    if img_cac is not None:
+        st.download_button("⬇ Download CAC Chart (PNG)", img_cac, file_name="cac_trend.png", mime="image/png")
+
     st.markdown("**Cohort LTV (heatmap)** — revenue evolution for acquisition cohorts")
-    st.plotly_chart(cohort_ltv_heatmap(subset, months=6), use_container_width=True)
+    fig_cohort = cohort_ltv_heatmap(subset, months=6)
+    st.plotly_chart(fig_cohort, use_container_width=True)
+    img_cohort = fig_to_png_bytes(fig_cohort)
+    if img_cohort is not None:
+        st.download_button("⬇ Download Cohort Heatmap (PNG)", img_cohort, file_name="cohort_ltv_heatmap.png", mime="image/png")
+
     st.markdown("**Key financial KPIs**")
     aov = subset["aov"].mean()
     refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
     st.metric("Average Order Value (AOV)", f"₹{aov:,.2f}")
     st.metric("Refund / Return Rate", f"{refund_rate*100:.2f}%" if not np.isnan(refund_rate) else "N/A")
 
-st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs. :contentReference[oaicite:4]{index=4}")
+st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs.")
