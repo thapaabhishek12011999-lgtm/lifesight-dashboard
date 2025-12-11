@@ -580,6 +580,7 @@ with tabs[1]:
     st.plotly_chart(fig_funnel, use_container_width=True)
     img_funnel = fig_to_png_bytes(fig_funnel)
     if img_funnel is not None:
+        pass
 
     st.markdown("**Campaign & Creative Diagnostics** (Top performing rows)")
     diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
