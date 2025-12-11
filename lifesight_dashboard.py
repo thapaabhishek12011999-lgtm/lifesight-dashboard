@@ -443,7 +443,7 @@ if mer_delta is not None and mer_delta < -0.05:
 top_channel = subset.groupby("channel")["revenue"].sum().sort_values(ascending=False).index[0]
 insight.append(f"Top channel (by revenue) in the selection: {top_channel}.")
 
-st.markdown(f"<div class='insight'><strong>Summary Insights:</strong><br>{'<br>'.join(insight)}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='insight'><strong>AI Summary Insights:</strong><br>{'<br>'.join(insight)}</div>", unsafe_allow_html=True)
 
 st.markdown("---")
 
