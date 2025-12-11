@@ -672,4 +672,3 @@ with tabs[2]:
     st.metric("Refund / Return Rate", f"{refund_rate_display*100:.2f}%" if not np.isnan(refund_rate_display) else "N/A")
 
 st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs.")
-
