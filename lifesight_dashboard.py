@@ -121,7 +121,7 @@ def generate_mock_data(months_before=3, months_after=3, seed=42):
 # -----------------------
 PRIMARY_PURPLE = "#6B21A8"
 ACCENT_GREEN = "#14B8A6"
-CARD_BG = "#ffffff"
+CARD_BG = "#FAFAFB"   # changed for better contrast
 PAGE_BG = "#ffffff"
 TEXT_COLOR = "#0f172a"
 
@@ -525,20 +525,37 @@ with tabs[0]:
 with tabs[1]:
     st.header("CMO View — Marketing Effectiveness & Diagnostics")
 
-    # --- CMO KPI Scorecards (placed at the top)
+    # --- CMO KPI Scorecards (placed at the top) — HTML cards for visibility
     st.subheader("CMO KPIs")
-    cmo1, cmo2, cmo3, cmo4 = st.columns(4)
-    with cmo1:
-        st.metric("Total Impressions", f"{subset['impressions'].sum():,}")
-    with cmo2:
+    c1, c2, c3, c4 = st.columns(4, gap="large")
+
+    with c1:
+        total_imp = subset['impressions'].sum()
+        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Total Impressions</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{total_imp:,}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with c2:
         ctr_val = subset['clicks'].sum() / subset['impressions'].sum() if subset['impressions'].sum() > 0 else 0
-        st.metric("Click-Through Rate", f"{ctr_val*100:.2f}%")
-    with cmo3:
+        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Click-Through Rate</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{ctr_val*100:.2f}%</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with c3:
         cpm_val = subset['spend'].sum() / (subset['impressions'].sum()/1000) if subset['impressions'].sum() > 0 else np.nan
-        st.metric("Avg. CPM", f"₹{cpm_val:.2f}" if not np.isnan(cpm_val) else "N/A")
-    with cmo4:
+        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Avg. CPM</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{'₹{:.2f}'.format(cpm_val) if not np.isnan(cpm_val) else 'N/A'}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with c4:
         cvr_val = subset['conversions'].sum() / subset['clicks'].sum() if subset['clicks'].sum() > 0 else 0
-        st.metric("Avg. Conversion Rate", f"{cvr_val*100:.2f}%")
+        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Avg. Conversion Rate</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{cvr_val*100:.2f}%</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("**ROAS by Channel** — quick comparison to guide budget allocation")
     fig_roas = plot_roas_by_channel(subset)
@@ -570,28 +587,46 @@ with tabs[1]:
 with tabs[2]:
     st.header("CFO View — Financial Efficiency & Profitability")
 
-    # --- CFO KPI Scorecards (placed at the top)
+    # --- CFO KPI Scorecards (placed at the top) — HTML cards for visibility
     st.subheader("CFO KPIs")
-    cfo1, cfo2, cfo3, cfo4 = st.columns(4)
-    with cfo1:
-        # Marketing ROI = (Revenue - Spend) / Spend
+    d1, d2, d3, d4 = st.columns(4, gap="large")
+
+    with d1:
         if subset["spend"].sum() > 0:
             roi_val = (subset["revenue"].sum() - subset["spend"].sum()) / subset["spend"].sum()
-            st.metric("Marketing ROI", f"{roi_val*100:.2f}%")
+            roi_text = f"{roi_val*100:.2f}%"
         else:
-            st.metric("Marketing ROI", "N/A")
-    with cfo2:
+            roi_text = "N/A"
+        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Marketing ROI</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{roi_text}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with d2:
         if subset["revenue"].sum() > 0:
             gm_val = (subset["revenue"].sum() - subset["cogs"].sum()) / subset["revenue"].sum()
-            st.metric("Gross Margin Rate", f"{gm_val*100:.2f}%")
+            gm_text = f"{gm_val*100:.2f}%"
         else:
-            st.metric("Gross Margin Rate", "N/A")
-    with cfo3:
+            gm_text = "N/A"
+        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Gross Margin Rate</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{gm_text}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with d3:
         aov_val = subset['aov'].mean()
-        st.metric("Average Order Value", f"₹{aov_val:.2f}")
-    with cfo4:
+        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Average Order Value</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>₹{aov_val:.2f}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with d4:
         refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum() > 0 else np.nan
-        st.metric("Refund & Return Rate", f"{refund_rate*100:.2f}%" if not np.isnan(refund_rate) else "N/A")
+        refund_text = f"{refund_rate*100:.2f}%" if not np.isnan(refund_rate) else "N/A"
+        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Refund & Return Rate</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{refund_text}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     fig_contrib = plot_contribution_waterfall(subset)
     st.plotly_chart(fig_contrib, use_container_width=True)
