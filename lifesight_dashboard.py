@@ -3,27 +3,6 @@
 Lifesight-themed Marketing Performance Streamlit Dashboard
 """
 
-def delta_html(cur, prev, lower_is_better=False):
-    """Return HTML snippet for percent change vs prev period.
-    By default: increase (pop>0) is considered positive (green).
-    If lower_is_better=True, a decrease (pop<0) is considered positive (green).
-    """
-    pop = compute_pop(cur, prev)
-    if pop is None:
-        return ""
-    # arrow: up for positive change, down for negative change (directional)
-    sym = "▲" if pop > 0 else "▼"
-
-    # decide whether this change is an improvement
-    if lower_is_better:
-        improved = (pop < 0)
-    else:
-        improved = (pop > 0)
-
-    color = "#059669" if improved else "#dc2626"
-    return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
-    
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -226,6 +205,16 @@ def compute_pop(cur, prev):
     except:
         return None
 
+def delta_html(cur, prev):
+    """Return HTML snippet for percent change vs prev period (green up/red down)."""
+    pop = compute_pop(cur, prev)
+    if pop is None:
+        return ""
+    sym = "▲" if pop > 0 else "▼"
+    color = "#059669" if pop > 0 else "#dc2626"
+    return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
+
+# -----------------------
 # Plot builders with titles/subtitles
 # -----------------------
 def plot_spend_revenue_trend(df):
@@ -516,6 +505,33 @@ with tabs[0]:
 
     fig_spend_rev = plot_spend_revenue_trend(subset)
     st.plotly_chart(fig_spend_rev, use_container_width=True)
+
+    # Download buttons: export PNG of this chart (if environment supports)
+    img_bytes = fig_to_png_bytes(fig_spend_rev)
+    if img_bytes is not None:
+        st.download_button("⬇ Download Trend PNG", img_bytes, file_name="revenue_spend_trend.png", mime="image/png")
+    else:
+        st.info("PNG export for chart not available in this environment (requires kaleido).")
+
+    st.markdown("**Customer Acquisition & Retention** — New vs Returning revenue over time (quick view)")
+    subset_agg = subset.groupby("date").agg({"revenue":"sum", "new_customers":"sum","returning_customers":"sum"}).reset_index()
+    subset_agg["new_rev"] = subset_agg["revenue"] * (subset_agg["new_customers"] / (subset_agg["new_customers"] + subset_agg["returning_customers"] + 1e-9))
+    subset_agg["ret_rev"] = subset_agg["revenue"] - subset_agg["new_rev"]
+    fig_nr = go.Figure()
+    fig_nr.add_trace(go.Scatter(x=subset_agg["date"], y=subset_agg["ret_rev"], stackgroup='one', name='Returning Customers', line=dict(color="#8b5cf6")))
+    fig_nr.add_trace(go.Scatter(x=subset_agg["date"], y=subset_agg["new_rev"], stackgroup='one', name='New Customers', line=dict(color=ACCENT_GREEN)))
+    fig_nr.update_layout(template="plotly_white", height=300, margin=dict(t=40))
+    st.plotly_chart(fig_nr, use_container_width=True)
+
+    # Add report export (PDF)
+    report_bytes = create_pdf_bytes(subset, {
+        "Total Revenue (₹)": f"{cur_kpis['total_revenue']:,.2f}",
+        "Total Spend (₹)": f"{cur_kpis['total_spend']:,.2f}",
+        "MER": cur_kpis['mer'],
+        "Gross Margin": f"{cur_kpis['gross_margin']*100:.2f}%"
+    }, title="Lifesight - Executive Report")
+    st.download_button("⬇ Download Dashboard Report (PDF)", report_bytes, file_name="lifesight_dashboard_report.pdf", mime="application/pdf")
+
 # ===== CMO View =====
 with tabs[1]:
     st.header("CMO View — Marketing Effectiveness & Diagnostics")
@@ -556,7 +572,7 @@ with tabs[1]:
         st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Avg. CPM</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi-value'>{'₹{:.2f}'.format(cpm_val) if not np.isnan(cpm_val) else 'N/A'}</div>", unsafe_allow_html=True)
-        st.markdown(delta_html(cpm_val, prev_cpm, lower_is_better=True), unsafe_allow_html=True)
+        st.markdown(delta_html(cpm_val, prev_cpm), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # Avg. Conversion Rate
@@ -574,13 +590,14 @@ with tabs[1]:
     st.plotly_chart(fig_roas, use_container_width=True)
     img_roas = fig_to_png_bytes(fig_roas)
     if img_roas is not None:
+        st.download_button("⬇ Download ROAS Chart (PNG)", img_roas, file_name="roas_by_channel.png", mime="image/png")
 
     st.markdown("**Full Marketing Funnel** — identify drop-off points")
     fig_funnel = plot_funnel_bars(subset)
     st.plotly_chart(fig_funnel, use_container_width=True)
     img_funnel = fig_to_png_bytes(fig_funnel)
     if img_funnel is not None:
-        pass
+        st.download_button("⬇ Download Funnel Chart (PNG)", img_funnel, file_name="marketing_funnel.png", mime="image/png")
 
     st.markdown("**Campaign & Creative Diagnostics** (Top performing rows)")
     diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
@@ -592,6 +609,7 @@ with tabs[1]:
     st.dataframe(diag.sort_values("revenue", ascending=False).head(100), use_container_width=True)
     # allow downloading the diagnostics table as CSV
     csv_buf = diag.sort_values("revenue", ascending=False).to_csv(index=False).encode("utf-8")
+    st.download_button("⬇ Download Diagnostics (CSV)", csv_buf, file_name="campaign_diagnostics.csv", mime="text/csv")
 
 # ===== CFO View =====
 with tabs[2]:
@@ -656,25 +674,28 @@ with tabs[2]:
         st.markdown("<div class='kpi-label'>Refund & Return Rate</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi-value'>{f'{refund_rate*100:.2f}%'}" if refund_rate is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
         if refund_rate is not None:
-            st.markdown(delta_html(refund_rate, prev_refund, lower_is_better=True), unsafe_allow_html=True)
+            st.markdown(delta_html(refund_rate, prev_refund), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     fig_contrib = plot_contribution_waterfall(subset)
     st.plotly_chart(fig_contrib, use_container_width=True)
     img_contrib = fig_to_png_bytes(fig_contrib)
     if img_contrib is not None:
+        st.download_button("⬇ Download Contribution Chart (PNG)", img_contrib, file_name="contribution_waterfall.png", mime="image/png")
 
     st.markdown("**CAC Trend & Cost Efficiency** — monitor CAC vs historical performance")
     fig_cac = plot_cac_trend(subset)
     st.plotly_chart(fig_cac, use_container_width=True)
     img_cac = fig_to_png_bytes(fig_cac)
     if img_cac is not None:
+        st.download_button("⬇ Download CAC Chart (PNG)", img_cac, file_name="cac_trend.png", mime="image/png")
 
     st.markdown("**Cohort LTV (heatmap)** — revenue evolution for acquisition cohorts")
     fig_cohort = cohort_ltv_heatmap(subset, months=6)
     st.plotly_chart(fig_cohort, use_container_width=True)
     img_cohort = fig_to_png_bytes(fig_cohort)
     if img_cohort is not None:
+        st.download_button("⬇ Download Cohort Heatmap (PNG)", img_cohort, file_name="cohort_ltv_heatmap.png", mime="image/png")
 
     st.markdown("**Key financial KPIs**")
     aov = subset["aov"].mean()
@@ -683,4 +704,3 @@ with tabs[2]:
     st.metric("Refund / Return Rate", f"{refund_rate_display*100:.2f}%" if not np.isnan(refund_rate_display) else "N/A")
 
 st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs.")
-
