@@ -1,6 +1,10 @@
 """
-Lifesight-themed Marketing Performance Streamlit Dashboard
-(Exports removed; cohort heatmap removed from UI; inverted color for some KPI deltas)
+Lifesight - Executive-grade UI (styled to match provided screenshots)
+- Tabbed: Executive / CMO / CFO
+- Soft purple header, rounded cards, compact KPI tiles
+- Funnel shows counts + % of impressions; delta semantics: CPM/refund decrease = green
+- Cohort heatmap removed from UI
+- Exports removed
 """
 
 import streamlit as st
@@ -9,10 +13,9 @@ import numpy as np
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-from pathlib import Path
 
 # -----------------------
-# Mock data generator (daily, 3 months before + 3 months after today)
+# Mock data generator (kept from your pipeline)
 # -----------------------
 @st.cache_data
 def generate_mock_data(months_before=3, months_after=3, seed=42):
@@ -108,57 +111,79 @@ def generate_mock_data(months_before=3, months_after=3, seed=42):
     return df
 
 # -----------------------
-# Styling: Lifesight-like (purple + white)
+# THEME & CSS to mimic screenshots
 # -----------------------
-PRIMARY_PURPLE = "#6B21A8"
-ACCENT_GREEN = "#14B8A6"
-CARD_BG = "#FAFAFB"
-PAGE_BG = "#ffffff"
-TEXT_COLOR = "#0f172a"
+PRIMARY = "#6B21A8"
+ACCENT = "#7c3aed"
+MUTED = "#6b7280"
+CARD_BG = "#FBF9FF"   # very light purple card background
+WHITE = "#FFFFFF"
+TEXT = "#0f172a"
 
 def inject_css():
     st.markdown(
         f"""
-    <style>
-    .stApp {{ background: {PAGE_BG}; color: {TEXT_COLOR}; }}
-    .reportview-container .main .block-container{{padding-top:1.5rem; padding-left:2rem; padding-right:2rem;}}
-    .topband {{
-        background: linear-gradient(90deg,{PRIMARY_PURPLE} 0%, #7c3aed 100%);
-        color: white;
-        padding: 10px 24px;
-        border-radius: 8px;
-        margin-bottom: 18px;
-    }}
-    .kpi-large {{
-        background: {CARD_BG};
-        padding: 18px;
-        border-radius: 10px;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-        color: {TEXT_COLOR};
-    }}
-    .kpi-small {{
-        background: {CARD_BG};
-        padding: 12px;
-        border-radius: 8px;
-        box-shadow: 0 3px 10px rgba(0,0,0,0.06);
-        color: {TEXT_COLOR};
-    }}
-    .insight {{
-        background: #f8fafc;
-        padding: 12px;
-        border-radius: 8px;
-        color: {TEXT_COLOR};
-    }}
-    .kpi-label {{ font-size:14px; color:#374151; }}
-    .kpi-value {{ font-size:28px; font-weight:700; color:{TEXT_COLOR}; }}
-    .kpi-delta {{ font-size:13px; color:#059669; }}
-    </style>
-    """,
+        <style>
+        /* page & container sizes */
+        .stApp {{ background: #fbfbfd; color: {TEXT}; font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial; }}
+        .block-container{{max-width:1400px; padding-top:10px; padding-left:20px; padding-right:20px;}}
+
+        /* top header + pills */
+        .topband {{
+            background: linear-gradient(90deg, {PRIMARY}20 0%, {ACCENT}12 100%);
+            border: 1px solid #f0ecf9;
+            padding: 16px 18px;
+            border-radius: 10px;
+            margin-bottom: 14px;
+        }}
+        .title-main {{ font-size:20px; font-weight:700; color: #2b2540; }}
+        .title-sub {{ font-size:13px; color:{MUTED}; margin-top:3px; }}
+
+        /* tab pills styling tweak (affects tab labels visually) */
+        .css-1d391kg .stTabs [role="tab"] {{
+            border-radius: 999px !important;
+            padding: 6px 12px !important;
+            font-weight:600;
+        }}
+
+        /* KPI card */
+        .kpi-card {{
+            background: {CARD_BG};
+            border-radius: 12px;
+            padding: 14px;
+            box-shadow: 0 6px 18px rgba(115,85,200,0.04);
+            border: 1px solid #f0ecf9;
+        }}
+        .kpi-label {{ color:{MUTED}; font-size:12px; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.6px; }}
+        .kpi-value {{ font-size:22px; font-weight:800; color:#251f3a; }}
+        .kpi-target {{ color:{MUTED}; font-size:12px; margin-top:6px; }}
+
+        /* small delta badges */
+        .delta-up {{ color:#059669; font-weight:700; }}
+        .delta-down {{ color:#dc2626; font-weight:700; }}
+
+        /* section header card */
+        .section-header {{
+            background: linear-gradient(90deg, #faf7ff, #fff);
+            border-radius:10px;
+            padding:12px 14px;
+            border:1px solid #f0ecf9;
+            margin-bottom:12px;
+        }}
+        .section-title {{ font-size:15px; font-weight:700; color:#281b3f; }}
+
+        /* compact metrics row spacing */
+        .metrics-row > div {{ padding-right:8px; }}
+
+        /* smaller helpers */
+        .muted {{ color:{MUTED}; font-size:13px; }}
+        </style>
+        """,
         unsafe_allow_html=True,
     )
 
 # -----------------------
-# KPI helpers & calculations
+# KPI helpers & delta logic
 # -----------------------
 def compute_exec_kpis(df):
     total_revenue = df["revenue"].sum()
@@ -184,7 +209,6 @@ def compute_exec_kpis(df):
     }
 
 def compute_pop(cur, prev):
-    # compute percent change safely
     if prev is None or prev == 0 or np.isnan(prev):
         return None
     try:
@@ -192,45 +216,32 @@ def compute_pop(cur, prev):
     except:
         return None
 
-def delta_html(cur, prev):
-    """Return HTML snippet for percent change vs prev period (green up/red down)."""
+def delta_html_small(cur, prev, invert=False):
     pop = compute_pop(cur, prev)
     if pop is None:
-        return ""
+        return "<span class='muted'>No prev</span>"
     sym = "▲" if pop > 0 else "▼"
-    color = "#059669" if pop > 0 else "#dc2626"
-    return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
-
-def delta_html_inverted(cur, prev):
-    """
-    Same as delta_html but inverted color semantics:
-    - A decrease (pop < 0) is treated as positive (green)
-    - An increase (pop > 0) is treated as negative (red)
-    Useful for metrics where reduction is desirable (e.g., CPM, refund rate).
-    """
-    pop = compute_pop(cur, prev)
-    if pop is None:
-        return ""
-    sym = "▲" if pop > 0 else "▼"
-    # invert color: green when pop < 0 (decrease), red when pop > 0 (increase)
-    color = "#059669" if pop < 0 else "#dc2626"
-    return f"<div style='color:{color}; font-weight:600'>{sym} {abs(pop)*100:.1f}% vs prev</div>"
+    if invert:
+        color_cls = "delta-up" if pop < 0 else "delta-down"
+    else:
+        color_cls = "delta-up" if pop > 0 else "delta-down"
+    return f"<span class='{color_cls}' style='font-size:13px'>{sym} {abs(pop)*100:.1f}%</span>"
 
 # -----------------------
-# Plot builders with titles/subtitles
+# Plot building (kept but adjusted styling)
 # -----------------------
 def plot_spend_revenue_trend(df):
     ts = df.groupby("date").agg({"revenue":"sum","spend":"sum"}).reset_index()
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=ts["date"], y=ts["spend"], name="Spend", marker_color="#8b5cf6", yaxis="y2", opacity=0.6))
-    fig.add_trace(go.Scatter(x=ts["date"], y=ts["revenue"], name="Revenue", mode="lines", line=dict(color=ACCENT_GREEN, width=3)))
+    fig.add_trace(go.Bar(x=ts["date"], y=ts["spend"], name="Spend", marker_color=ACCENT, yaxis="y2", opacity=0.14))
+    fig.add_trace(go.Scatter(x=ts["date"], y=ts["revenue"], name="Revenue", mode="lines", line=dict(color="#10b981", width=3)))
     fig.update_layout(
-        title=dict(text="Revenue & Marketing Spend Trend", x=0),
+        title="",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-        xaxis=dict(title="Date"),
-        yaxis=dict(title="Revenue"),
+        xaxis=dict(showgrid=False),
+        yaxis=dict(title="Revenue", gridcolor="rgba(0,0,0,0.06)"),
         yaxis2=dict(title="Spend", overlaying="y", side="right"),
-        margin=dict(l=40, r=40, t=60, b=40),
+        margin=dict(l=30, r=30, t=8, b=30),
         template="plotly_white",
         height=360
     )
@@ -239,92 +250,11 @@ def plot_spend_revenue_trend(df):
 def plot_roas_by_channel(df):
     agg = df.groupby("channel").agg({"revenue":"sum","spend":"sum"}).reset_index()
     agg["roas"] = agg["revenue"] / agg["spend"]
-    color_map = {"Meta":"#1D4ED8","Google":"#FACC15","Amazon":"#F59E0B","TikTok":"#F43F5E"}
+    color_map = {"Meta":"#2563EB","Google":"#FBBF24","Amazon":"#FB923C","TikTok":"#F43F5E"}
     fig = px.bar(agg.sort_values("roas", ascending=False), x="roas", y="channel", orientation="h",
                  text=agg["roas"].round(2), color="channel", color_discrete_map=color_map)
-    fig.update_layout(title_text="ROAS by Channel", template="plotly_white", height=320, margin=dict(l=120,t=50,b=20))
+    fig.update_layout(template="plotly_white", height=300, margin=dict(l=100,t=6,b=6))
     fig.update_xaxes(title="ROAS (Revenue / Spend)")
-    return fig
-
-def plot_funnel_bars(df):
-    """
-    Horizontal funnel bar chart that shows:
-     - visible label: "<count>\n(<% of impressions>)"
-     - hover: count, % of impressions, % of previous step
-    """
-    impressions = df["impressions"].sum()
-    clicks = df["clicks"].sum()
-    # approximate product views & add-to-cart for mock data
-    product_views = int(df["orders"].sum() * 3.5)
-    add_to_cart = int(product_views * 0.25)
-    purchases = int(df["orders"].sum())
-
-    steps = pd.DataFrame({
-        "step": ["Impressions", "Clicks", "Product Views", "Add to Cart", "Purchases"],
-        "value": [impressions, clicks, product_views, add_to_cart, purchases]
-    })
-
-    # percent of impressions
-    if impressions > 0:
-        steps["pct_of_impr"] = steps["value"] / impressions * 100
-    else:
-        steps["pct_of_impr"] = 0.0
-
-    # percent vs previous step (useful to see drop-off)
-    pct_prev = []
-    prev_val = None
-    for v in steps["value"]:
-        if prev_val is None or prev_val == 0:
-            pct_prev.append(100.0 if prev_val is None else 0.0)
-        else:
-            pct_prev.append(v / prev_val * 100)
-        prev_val = v
-    steps["pct_prev"] = pct_prev
-
-    # label: count + percent of impressions (displayed on bar)
-    steps["label"] = steps.apply(lambda r: f"{int(r['value']):,}\n({r['pct_of_impr']:.2f}%)", axis=1)
-
-    # create horizontal bar chart
-    fig = px.bar(
-        steps.sort_values("value", ascending=False).iloc[::-1],  # keep order top->bottom as impressions->purchases
-        x="value",
-        y="step",
-        orientation="h",
-        text="label",
-    )
-
-    # attach customdata for hovertemplate (count, % of impressions, % of previous step)
-    customdata = np.column_stack((steps["value"], steps["pct_of_impr"], steps["pct_prev"]))
-    # Because we sorted earlier for plotting, align customdata to that order:
-    customdata = customdata[steps.sort_values("value", ascending=False).index.values[::-1]]
-
-    fig.update_traces(
-        textposition="outside",
-        marker_color="#93c5fd",  # leave color subtle; change if desired
-        hovertemplate=(
-            "<b>%{y}</b><br>"
-            "Count: %{customdata[0]:,}<br>"
-            "% of impressions: %{customdata[1]:.2f}%<br>"
-            "% of previous step: %{customdata[2]:.2f}%<extra></extra>"
-        ),
-        customdata=customdata
-    )
-
-    fig.update_layout(
-        title_text="Marketing Funnel: Impression → Purchase",
-        template="plotly_white",
-        height=320,
-        margin=dict(l=120, t=50, b=20),
-        xaxis=dict(title="Count")
-    )
-
-    return fig
-
-def plot_cac_trend(df):
-    ts = df.groupby("date").apply(lambda x: pd.Series({"cac": x["spend"].sum() / x["conversions"].sum() if x["conversions"].sum()>0 else np.nan})).reset_index()
-    fig = px.line(ts, x="date", y="cac", title="Customer Acquisition Cost (CAC) Trend")
-    fig.update_layout(template="plotly_white", height=260, margin=dict(l=40,r=20,t=50,b=20))
-    fig.update_yaxes(title="CAC")
     return fig
 
 def plot_contribution_waterfall(df):
@@ -341,336 +271,322 @@ def plot_contribution_waterfall(df):
         x=["Revenue","COGS","Returns","Marketing Spend","Net Profit"],
         text=[f"{rev:,.0f}", f"-{cogs:,.0f}", f"-{returns:,.0f}", f"-{spend:,.0f}", f"{profit:,.0f}"],
         y=[rev, -cogs, -returns, -spend, profit],
-        decreasing=dict(marker=dict(color="#ef4444")),
+        decreasing=dict(marker=dict(color="#f97373")),
         increasing=dict(marker=dict(color="#10b981")),
-        totals=dict(marker=dict(color="#6B21A8"))
+        totals=dict(marker=dict(color=PRIMARY))
     ))
-    fig.update_layout(title_text="Contribution Margin Breakdown", template="plotly_white", height=360, margin=dict(l=40,r=20,t=60,b=20))
+    fig.update_layout(template="plotly_white", height=320, margin=dict(l=30,r=30,t=6,b=6))
     return fig
 
-def cohort_ltv_heatmap(df, months=6):
-    """
-    NOTE: function remains for potential future use but is NOT rendered in the UI per current request.
-    """
-    orders = df[df["orders"]>0].copy()
-    if orders.empty:
-        return go.Figure()
-    orders["cohort_month"] = orders["date"].dt.to_period("M").dt.to_timestamp()
-    orders["order_month"] = orders["date"].dt.to_period("M").dt.to_timestamp()
-    pivot = orders.groupby(["cohort_month","order_month"]).agg({"revenue":"sum"}).reset_index()
-    pivot["months_since"] = ((pivot["order_month"].dt.year - pivot["cohort_month"].dt.year)*12 + (pivot["order_month"].dt.month - pivot["cohort_month"].dt.month))
-    pivot = pivot[(pivot["months_since"]>=0) & (pivot["months_since"]<months)]
-    heat = pivot.pivot_table(index="cohort_month", columns="months_since", values="revenue", aggfunc="sum").fillna(0)
-    fig = go.Figure(data=go.Heatmap(
-        z=heat.values,
-        x=[f"M+{c}" for c in heat.columns],
-        y=[d.strftime("%Y-%m") for d in heat.index],
-        colorscale="Purples"
-    ))
-    fig.update_layout(title_text="Cohort LTV Heatmap (Revenue by Cohort Month)", template="plotly_white", height=360, margin=dict(l=80,r=20,t=60,b=20))
+def plot_cac_trend(df):
+    ts = df.groupby("date").apply(lambda x: pd.Series({"cac": x["spend"].sum() / x["conversions"].sum() if x["conversions"].sum()>0 else np.nan})).reset_index()
+    fig = px.line(ts, x="date", y="cac", title="", markers=False)
+    fig.update_layout(template="plotly_white", height=260, margin=dict(l=30,r=20,t=8,b=20))
+    fig.update_yaxes(title="CAC")
+    return fig
+
+def plot_funnel_bars(df):
+    impressions = df["impressions"].sum()
+    clicks = df["clicks"].sum()
+    product_views = int(df["orders"].sum() * 3.5)
+    add_to_cart = int(product_views * 0.25)
+    purchases = int(df["orders"].sum())
+
+    steps = pd.DataFrame({
+        "step": ["Impressions", "Clicks", "Product Views", "Add to Cart", "Purchases"],
+        "value": [impressions, clicks, product_views, add_to_cart, purchases]
+    })
+
+    steps["pct_of_impr"] = (steps["value"] / impressions * 100).fillna(0) if impressions>0 else 0.0
+    pct_prev = []
+    prev_val = None
+    for v in steps["value"]:
+        if prev_val is None:
+            pct_prev.append(100.0)
+        else:
+            pct_prev.append((v / prev_val * 100) if prev_val>0 else 0.0)
+        prev_val = v
+    steps["pct_prev"] = pct_prev
+    # show label as "count (percent of impressions)" similar to screenshots
+    steps["label"] = steps.apply(lambda r: f"{int(r['value']):,}   {r['pct_of_impr']:.1f}%", axis=1)
+
+    # order top->bottom impressions->purchases
+    order_map = {"Impressions":5,"Clicks":4,"Product Views":3,"Add to Cart":2,"Purchases":1}
+    steps["order"] = steps["step"].map(order_map)
+    plot_df = steps.sort_values("order", ascending=False)
+
+    customdata = np.column_stack((plot_df["value"], plot_df["pct_of_impr"], plot_df["pct_prev"]))
+    fig = px.bar(plot_df, x="value", y="step", orientation="h", text="label", color_discrete_sequence=["#a78bfa"])
+    fig.update_traces(textposition="inside", insidetextanchor="end",
+                      hovertemplate=("<b>%{y}</b><br>Count: %{customdata[0]:,}<br>% of impressions: %{customdata[1]:.2f}%<br>% vs prev step: %{customdata[2]:.2f}%<extra></extra>"),
+                      customdata=customdata)
+    fig.update_layout(template="plotly_white", height=300, margin=dict(l=120,t=6,b=6), xaxis=dict(title="Count"))
     return fig
 
 # -----------------------
-# NOTE: Export utilities removed
+# Streamlit layout - Header + Tabs
 # -----------------------
-
-# -----------------------
-# Streamlit app layout
-# -----------------------
-st.set_page_config(page_title="Lifesight - Marketing Performance", layout="wide")
+st.set_page_config(page_title="Marketing Performance Dashboard", layout="wide", initial_sidebar_state="collapsed")
 inject_css()
 
-st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</strong> — Marketing Performance Dashboard</div>", unsafe_allow_html=True)
+# Top header + small controls on the right
+header_col, controls_col = st.columns([3,1])
+with header_col:
+    st.markdown(f"<div class='title-main'>Marketing Performance Dashboard</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='title-sub'>E-Commerce Brand Analytics • Multi-Platform Advertising Performance</div>", unsafe_allow_html=True)
+with controls_col:
+    # compact controls to mimic screenshots
+    with st.container():
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        _ = st.selectbox("", ["Last 1 Month","Last 3 Months","Last 6 Months"], index=2, key="__range", help="Select date range")
+        if st.button("Refresh"):
+            st.experimental_rerun()
+
+st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+# Tabs (Executive / CMO / CFO) as pill tabs at top
+tab_exec, tab_cmo, tab_cfo = st.tabs(["Executive Summary", "CMO View", "CFO View"])
 
 # Load data
 df = generate_mock_data(months_before=3, months_after=3)
 
-# FILTER ROW
-f1, f2, f3, f4, f5 = st.columns([1.2,1.2,1.2,1.6,0.4])
-with f1:
-    st.markdown("**Channel**")
-    channel = st.selectbox("", ["All"] + sorted(df["channel"].unique().tolist()), index=0, key="filter_channel")
-with f2:
-    st.markdown("**Campaign**")
-    campaign = st.selectbox("", ["All"] + sorted(df["campaign"].unique().tolist()), index=0, key="filter_campaign")
-with f3:
-    st.markdown("**Creative**")
-    creative = st.selectbox("", ["All"] + sorted(df["creative"].unique().tolist()), index=0, key="filter_creative")
-with f4:
-    st.markdown("**Date range**")
-    start_date = st.date_input("", value=df["date"].min().date(), key="filter_start")
-    end_date = st.date_input("", value=df["date"].max().date(), key="filter_end")
+# Sidebar-like filters but kept minimal (top-of-page style)
+filters_col1, filters_col2, filters_col3 = st.columns([1,1,1])
+with filters_col1:
+    channel = st.selectbox("Channel", ["All"] + sorted(df["channel"].unique().tolist()), index=0, key="filter_channel")
+with filters_col2:
+    campaign = st.selectbox("Campaign", ["All"] + sorted(df["campaign"].unique().tolist()), index=0, key="filter_campaign")
+with filters_col3:
+    start_date = st.date_input("Start date", value=df["date"].min().date())
+    end_date = st.date_input("End date", value=df["date"].max().date())
 
-# subset data according to filters
+# Subset
 subset = df.copy()
 if channel != "All":
     subset = subset[subset["channel"]==channel]
 if campaign != "All":
     subset = subset[subset["campaign"]==campaign]
-if creative != "All":
-    subset = subset[subset["creative"]==creative]
 subset = subset[(subset["date"]>=pd.to_datetime(start_date)) & (subset["date"]<=pd.to_datetime(end_date))]
 
-# handle empty subset
 if subset.empty:
     st.warning("No data for the selected filters/date range. Adjust filters.")
     st.stop()
 
-# compute current and previous period (same length) for PoP
+# prev period computation (same length)
 curr_start, curr_end = pd.to_datetime(start_date), pd.to_datetime(end_date)
 period_days = (curr_end - curr_start).days + 1
 prev_end = curr_start - pd.Timedelta(days=1)
 prev_start = prev_end - pd.Timedelta(days=period_days-1)
-cur_kpis = compute_exec_kpis(subset)
 prev_subset = df[(df["date"]>=prev_start) & (df["date"]<=prev_end)]
+
+cur_kpis = compute_exec_kpis(subset)
 prev_kpis = compute_exec_kpis(prev_subset)
 
-# KPI area
-left, right = st.columns([2,3], gap="large")
-with left:
-    st.markdown("<div class='kpi-large'>", unsafe_allow_html=True)
-    st.markdown("<div class='kpi-label'>Total Net Revenue</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='kpi-value'>₹{cur_kpis['total_revenue']:,.0f}</div>", unsafe_allow_html=True)
-    rev_delta = compute_pop(cur_kpis['total_revenue'], prev_kpis['total_revenue'])
-    if rev_delta is None:
-        st.markdown("<div class='kpi-delta'>No previous period</div>", unsafe_allow_html=True)
-    else:
-        sym = "▲" if rev_delta > 0 else "▼"
-        color = "#059669" if rev_delta > 0 else "#dc2626"
-        st.markdown(f"<div style='color:{color}; font-weight:600'>{sym} {abs(rev_delta)*100:.1f}% vs prev period</div>", unsafe_allow_html=True)
+# -----------------------
+# EXECUTIVE TAB content
+# -----------------------
+with tab_exec:
+    st.markdown("<div class='section-header'><div class='section-title'>Executive Summary</div><div class='muted'>High-level KPIs linking marketing investment to company financial health</div></div>", unsafe_allow_html=True)
+    # KPI row - similar to screenshots (4 cards across)
+    cols = st.columns([1.2,1,1,1], gap="large")
+    # Total Net Revenue (formatted friendly: K / M)
+    def fmt_money(v):
+        if v >= 1e6:
+            return f"${v/1e6:.2f}M"
+        if v >= 1e3:
+            return f"${v/1e3:.0f}K"
+        return f"${v:.0f}"
+
+    with cols[0]:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>TOTAL NET REVENUE</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{fmt_money(cur_kpis['total_revenue'])}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(cur_kpis['total_revenue'], prev_kpis['total_revenue'])} &nbsp; <span class='muted'>Target: $4.5M</span></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with cols[1]:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>MARKETING EFFICIENCY RATIO</div>", unsafe_allow_html=True)
+        mer_val = cur_kpis["mer"]
+        st.markdown(f"<div class='kpi-value'>{mer_val:.2f}x</div>" if not np.isnan(mer_val) else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(mer_val, prev_kpis['mer'])} &nbsp; <span class='muted'>Target: 3.5x</span></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with cols[2]:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>LTV : CAC RATIO</div>", unsafe_allow_html=True)
+        ltv_cac = cur_kpis.get("ltv_cac", np.nan)
+        st.markdown(f"<div class='kpi-value'>{ltv_cac:.2f}x</div>" if not np.isnan(ltv_cac) else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(ltv_cac, prev_kpis.get('ltv_cac', np.nan))} &nbsp; <span class='muted'>Target: 4x</span></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with cols[3]:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>GROSS PROFIT MARGIN</div>", unsafe_allow_html=True)
+        gpm = cur_kpis["gross_margin"]
+        st.markdown(f"<div class='kpi-value'>{gpm*100:.0f}%</div>" if not np.isnan(gpm) else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(gpm, prev_kpis['gross_margin'])} &nbsp; <span class='muted'>Target: 60%</span></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+    # Big trend chart
+    st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Revenue & Marketing Efficiency Trend</div>", unsafe_allow_html=True)
+    fig = plot_spend_revenue_trend(subset)
+    st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-with right:
-    cols = st.columns(4, gap="medium")
-    gpm = cur_kpis["gross_margin"]
-    prev_gpm = prev_kpis["gross_margin"]
-    gpm_delta = compute_pop(gpm, prev_gpm)
-    with cols[0]:
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Gross Profit Margin</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{gpm*100:.1f}%</div>" if not np.isnan(gpm) else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
-        if gpm_delta is not None:
-            colc = "#059669" if gpm_delta>0 else "#dc2626"
-            st.markdown(f"<div style='color:{colc}'>{'▲' if gpm_delta>0 else '▼'} {abs(gpm_delta)*100:.1f}%</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+# -----------------------
+# CMO VIEW
+# -----------------------
+with tab_cmo:
+    st.markdown("<div class='section-header'><div class='section-title'>CMO View: Marketing Effectiveness</div><div class='muted'>Campaign diagnostics, channel performance & acquisition insights</div></div>", unsafe_allow_html=True)
 
-    mer = cur_kpis["mer"]
-    prev_mer = prev_kpis["mer"]
-    mer_delta = compute_pop(mer, prev_mer)
-    with cols[1]:
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Marketing Efficiency Ratio (MER)</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{mer:.2f}</div>" if not np.isnan(mer) else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
-        if mer_delta is not None:
-            colc = "#059669" if mer_delta>0 else "#dc2626"
-            st.markdown(f"<div style='color:{colc}'>{'▲' if mer_delta>0 else '▼'} {abs(mer_delta)*100:.1f}%</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    ltv_cac = cur_kpis["ltv_cac"]
-    prev_ltv_cac = prev_kpis["ltv_cac"]
-    ltv_delta = compute_pop(ltv_cac, prev_ltv_cac)
-    with cols[2]:
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>LTV : CAC Ratio</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{ltv_cac:.2f}</div>" if not np.isnan(ltv_cac) else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
-        if ltv_delta is not None:
-            colc = "#059669" if ltv_delta>0 else "#dc2626"
-            st.markdown(f"<div style='color:{colc}'>{'▲' if ltv_delta>0 else '▼'} {abs(ltv_delta)*100:.1f}%</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    profit = cur_kpis["profit"]
-    prev_profit = prev_kpis["profit"]
-    profit_delta = compute_pop(profit, prev_profit)
-    with cols[3]:
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Total Profit</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>₹{profit:,.0f}</div>", unsafe_allow_html=True)
-        if profit_delta is not None:
-            colc = "#059669" if profit_delta>0 else "#dc2626"
-            st.markdown(f"<div style='color:{colc}'>{'▲' if profit_delta>0 else '▼'} {abs(profit_delta)*100:.1f}%</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# Auto insight
-insight = []
-if rev_delta is not None:
-    if rev_delta > 0.05:
-        insight.append(f"Revenue rose {rev_delta*100:.1f}% vs previous period — growth momentum.")
-    elif rev_delta < -0.05:
-        insight.append(f"Revenue fell {abs(rev_delta)*100:.1f}% vs previous period — review channel performance.")
-if mer_delta is not None and mer_delta < -0.05:
-    insight.append("MER decreased — spend efficiency may be worsening.")
-top_channel = subset.groupby("channel")["revenue"].sum().sort_values(ascending=False).index[0]
-insight.append(f"Top channel (by revenue) in the selection: {top_channel}.")
-
-st.markdown(f"<div class='insight'><strong>AI Summary Insights:</strong><br>{'<br>'.join(insight)}</div>", unsafe_allow_html=True)
-
-st.markdown("---")
-
-# TABS
-tabs = st.tabs(["Executive (Overview)", "CMO View (Marketing)", "CFO View (Finance)"])
-
-# ===== Executive Overview tab =====
-with tabs[0]:
-    st.subheader("Executive Overview — Revenue & Spend")
-
-    fig_spend_rev = plot_spend_revenue_trend(subset)
-    st.plotly_chart(fig_spend_rev, use_container_width=True)
-
-    st.markdown("**Customer Acquisition & Retention** — New vs Returning revenue over time (quick view)")
-    subset_agg = subset.groupby("date").agg({"revenue":"sum", "new_customers":"sum","returning_customers":"sum"}).reset_index()
-    subset_agg["new_rev"] = subset_agg["revenue"] * (subset_agg["new_customers"] / (subset_agg["new_customers"] + subset_agg["returning_customers"] + 1e-9))
-    subset_agg["ret_rev"] = subset_agg["revenue"] - subset_agg["new_rev"]
-    fig_nr = go.Figure()
-    fig_nr.add_trace(go.Scatter(x=subset_agg["date"], y=subset_agg["ret_rev"], stackgroup='one', name='Returning Customers', line=dict(color="#8b5cf6")))
-    fig_nr.add_trace(go.Scatter(x=subset_agg["date"], y=subset_agg["new_rev"], stackgroup='one', name='New Customers', line=dict(color=ACCENT_GREEN)))
-    fig_nr.update_layout(template="plotly_white", height=300, margin=dict(t=40))
-    st.plotly_chart(fig_nr, use_container_width=True)
-
-# ===== CMO View =====
-with tabs[1]:
-    st.header("CMO View — Marketing Effectiveness & Diagnostics")
-
-    st.subheader("CMO KPIs")
-    c1, c2, c3, c4 = st.columns(4, gap="large")
-
-    prev_impressions = prev_subset["impressions"].sum()
+    # KPI row for marketing
+    c_cols = st.columns([1,1,1,1], gap="large")
+    prev_impr = prev_subset["impressions"].sum()
     prev_clicks = prev_subset["clicks"].sum()
     prev_spend = prev_subset["spend"].sum()
-    prev_conversions = prev_subset["conversions"].sum()
+    prev_conv = prev_subset["conversions"].sum()
 
-    # Total Impressions
-    with c1:
-        total_imp = subset['impressions'].sum()
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Total Impressions</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{total_imp:,}</div>", unsafe_allow_html=True)
-        st.markdown(delta_html(total_imp, prev_impressions), unsafe_allow_html=True)
+    with c_cols[0]:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>TOTAL IMPRESSIONS</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{int(subset['impressions'].sum()):,}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(subset['impressions'].sum(), prev_impr)} &nbsp; <span class='muted'> </span></div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Click-Through Rate
-    with c2:
-        ctr_val = subset['clicks'].sum() / subset['impressions'].sum() if subset['impressions'].sum() > 0 else 0
-        prev_ctr = prev_clicks / prev_impressions if prev_impressions > 0 else None
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Click-Through Rate</div>", unsafe_allow_html=True)
+    with c_cols[1]:
+        ctr_val = subset['clicks'].sum() / subset['impressions'].sum() if subset['impressions'].sum()>0 else 0
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>CLICK THROUGH RATE</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='kpi-value'>{ctr_val*100:.2f}%</div>", unsafe_allow_html=True)
-        st.markdown(delta_html(ctr_val, prev_ctr), unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(ctr_val, (prev_clicks/prev_impr) if prev_impr>0 else None)} </div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Avg. CPM (inverted color semantics: decrease = green)
-    with c3:
-        cpm_val = subset['spend'].sum() / (subset['impressions'].sum()/1000) if subset['impressions'].sum() > 0 else np.nan
-        prev_cpm = prev_spend / (prev_impressions/1000) if prev_impressions > 0 else None
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Avg. CPM</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{'₹{:.2f}'.format(cpm_val) if not np.isnan(cpm_val) else 'N/A'}</div>", unsafe_allow_html=True)
-        st.markdown(delta_html_inverted(cpm_val, prev_cpm), unsafe_allow_html=True)
+    with c_cols[2]:
+        cpm_val = subset['spend'].sum() / (subset['impressions'].sum()/1000) if subset['impressions'].sum()>0 else np.nan
+        prev_cpm = prev_spend / (prev_impr/1000) if prev_impr>0 else None
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>AVG. CPM</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{'${:.2f}'.format(cpm_val) if not np.isnan(cpm_val) else 'N/A'}</div>", unsafe_allow_html=True)
+        # inverted semantics (decrease = green)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(cpm_val, prev_cpm, invert=True)}</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Avg. Conversion Rate
-    with c4:
-        cvr_val = subset['conversions'].sum() / subset['clicks'].sum() if subset['clicks'].sum() > 0 else 0
-        prev_cvr = prev_conversions / prev_clicks if prev_clicks > 0 else None
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Avg. Conversion Rate</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{cvr_val*100:.2f}%</div>", unsafe_allow_html=True)
-        st.markdown(delta_html(cvr_val, prev_cvr), unsafe_allow_html=True)
+    with c_cols[3]:
+        freq = ((subset['impressions'].sum() / max(1, subset['orders'].sum())) if subset['orders'].sum()>0 else np.nan)
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>AVG. FREQUENCY</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{freq:.1f}x</div>" if not np.isnan(freq) else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-target'></div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("**ROAS by Channel** — quick comparison to guide budget allocation")
-    fig_roas = plot_roas_by_channel(subset)
-    st.plotly_chart(fig_roas, use_container_width=True)
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-    st.markdown("**Full Marketing Funnel** — identify drop-off points")
-    fig_funnel = plot_funnel_bars(subset)
-    st.plotly_chart(fig_funnel, use_container_width=True)
-
-    st.markdown("**Campaign & Creative Diagnostics** (Top performers)")
-    diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
-        "spend":"sum","impressions":"sum","clicks":"sum","conversions":"sum","revenue":"sum"
-    }).reset_index()
-    diag["ctr"] = (diag["clicks"] / diag["impressions"]).round(4)
-    diag["cvr"] = (diag["conversions"] / diag["clicks"]).round(4)
-    diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], pd.NA)
-    st.dataframe(diag.sort_values("revenue", ascending=False).head(100), use_container_width=True)
-
-# ===== CFO View =====
-with tabs[2]:
-    st.header("CFO View — Financial Efficiency & Profitability")
-
-    st.subheader("CFO KPIs")
-    d1, d2, d3, d4 = st.columns(4, gap="large")
-
-    prev_revenue = prev_subset["revenue"].sum()
-    prev_spend = prev_subset["spend"].sum()
-    prev_cogs = prev_subset["cogs"].sum()
-    prev_orders = prev_subset["orders"].sum()
-    prev_returns = prev_subset["returns"].sum()
-    prev_aov = prev_subset["aov"].mean() if not prev_subset.empty else None
-
-    # Marketing ROI
-    with d1:
-        if subset["spend"].sum() > 0:
-            roi_val = (subset["revenue"].sum() - subset["spend"].sum()) / subset["spend"].sum()
-        else:
-            roi_val = None
-        prev_roi = (prev_revenue - prev_spend) / prev_spend if prev_spend > 0 else None
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Marketing ROI</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{f'{roi_val*100:.2f}%'}" if roi_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
-        if roi_val is not None:
-            st.markdown(delta_html(roi_val, prev_roi), unsafe_allow_html=True)
+    # ROAS + Funnel side by side
+    r1, r2 = st.columns([1.4,1], gap="large")
+    with r1:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>ROAS by Channel</div>", unsafe_allow_html=True)
+        st.plotly_chart(plot_roas_by_channel(subset), use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with r2:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>Marketing Funnel</div>", unsafe_allow_html=True)
+        st.plotly_chart(plot_funnel_bars(subset), use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Gross Margin Rate
-    with d2:
-        if subset["revenue"].sum() > 0:
-            gm_val = (subset["revenue"].sum() - subset["cogs"].sum()) / subset["revenue"].sum()
-        else:
-            gm_val = None
-        prev_gm = (prev_revenue - prev_cogs) / prev_revenue if prev_revenue > 0 else None
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Gross Margin Rate</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{f'{gm_val*100:.2f}%'}" if gm_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
-        if gm_val is not None:
-            st.markdown(delta_html(gm_val, prev_gm), unsafe_allow_html=True)
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    # campaign diagnostics expander
+    with st.expander("Campaign & Creative Performance (Top 100)", expanded=False):
+        diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
+            "spend":"sum","impressions":"sum","clicks":"sum","conversions":"sum","revenue":"sum"
+        }).reset_index()
+        diag["ctr"] = (diag["clicks"] / diag["impressions"]).round(4)
+        diag["cvr"] = (diag["conversions"] / diag["clicks"]).round(4)
+        diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], pd.NA)
+        st.dataframe(diag.sort_values("revenue", ascending=False).head(100), use_container_width=True)
+
+# -----------------------
+# CFO VIEW
+# -----------------------
+with tab_cfo:
+    st.markdown("<div class='section-header'><div class='section-title'>CFO View: Financial Efficiency & Profitability</div><div class='muted'>Cost control, margin analysis and ROI tracking for fiscal planning</div></div>", unsafe_allow_html=True)
+
+    fcols = st.columns([1,1,1,1], gap="large")
+
+    with fcols[0]:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        roi_val = (subset["revenue"].sum() - subset["spend"].sum()) / subset["spend"].sum() if subset["spend"].sum()>0 else None
+        st.markdown("<div class='kpi-label'>MARKETING ROI</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{(roi_val*100):.0f}%</div>" if roi_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(roi_val, (prev_kpis['profit']-prev_kpis['total_spend'])/prev_kpis['total_spend'] if prev_kpis['total_spend']>0 else None)} </div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Average Order Value
-    with d3:
+    with fcols[1]:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        gm_val = (subset["revenue"].sum() - subset["cogs"].sum()) / subset["revenue"].sum() if subset["revenue"].sum()>0 else None
+        st.markdown("<div class='kpi-label'>GROSS MARGIN RATE</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{(gm_val*100):.1f}%</div>" if gm_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(gm_val, (prev_kpis['total_revenue']-prev_kpis['total_spend'])/prev_kpis['total_revenue'] if prev_kpis['total_revenue']>0 else None)} </div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with fcols[2]:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
         aov_val = subset['aov'].mean() if not subset.empty else None
-        prev_aov_val = prev_aov
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>AVERAGE ORDER VALUE</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>${aov_val:.0f}</div>" if aov_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(aov_val, prev_subset['aov'].mean() if not prev_subset.empty else None)} </div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with fcols[3]:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
+        prev_ref = prev_subset["returns"].sum() / prev_subset["orders"].sum() if prev_subset["orders"].sum()>0 else None
+        st.markdown("<div class='kpi-label'>REFUND & RETURN RATE</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>{(refund_rate*100):.1f}%</div>" if not np.isnan(refund_rate) else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-target'>{delta_html_small(refund_rate, prev_ref, invert=True)}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+    # Contribution & CAC side-by-side
+    left, right = st.columns([1.4,1], gap="large")
+    with left:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>Contribution Margin Breakdown</div>", unsafe_allow_html=True)
+        st.plotly_chart(plot_contribution_waterfall(subset), use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with right:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>Customer Acquisition Cost (CAC) Trend</div>", unsafe_allow_html=True)
+        st.plotly_chart(plot_cac_trend(subset), use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # small financial metrics (bottom)
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Net Profit Margin</div>", unsafe_allow_html=True)
+        net_profit = cur_kpis['profit']
+        total_rev = cur_kpis['total_revenue']
+        npm = (net_profit / total_rev) if total_rev>0 else np.nan
+        st.markdown(f"<div class='kpi-value'>{npm*100:.1f}%</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with b2:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='kpi-label'>Total Costs</div>", unsafe_allow_html=True)
+        total_costs = subset['cogs'].sum() + subset['spend'].sum() + subset['returned_value'].sum()
+        st.markdown(f"<div class='kpi-value'>${total_costs/1e3:.0f}K</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with b3:
+        st.markdown("<div class='kpi-card'>", unsafe_allow_html=True)
         st.markdown("<div class='kpi-label'>Average Order Value</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>₹{aov_val:.2f}</div>" if aov_val is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
-        if aov_val is not None:
-            st.markdown(delta_html(aov_val, prev_aov_val), unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-value'>${subset['aov'].mean():.0f}</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Refund & Return Rate (inverted color semantics: decrease = green)
-    with d4:
-        refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum() > 0 else None
-        prev_refund = prev_returns / prev_orders if prev_orders > 0 else None
-        st.markdown("<div class='kpi-small'>", unsafe_allow_html=True)
-        st.markdown("<div class='kpi-label'>Refund & Return Rate</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-value'>{f'{refund_rate*100:.2f}%'}" if refund_rate is not None else "<div class='kpi-value'>N/A</div>", unsafe_allow_html=True)
-        if refund_rate is not None:
-            st.markdown(delta_html_inverted(refund_rate, prev_refund), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    fig_contrib = plot_contribution_waterfall(subset)
-    st.plotly_chart(fig_contrib, use_container_width=True)
-
-    st.markdown("**CAC Trend & Cost Efficiency** — monitor CAC vs historical performance")
-    fig_cac = plot_cac_trend(subset)
-    st.plotly_chart(fig_cac, use_container_width=True)
-
-    # Cohort LTV visual intentionally removed per request (function retained but not rendered)
-
-    # small bottom KPIs (left intact, but heading removed)
-    aov = subset["aov"].mean()
-    refund_rate_display = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
-    st.metric("Average Order Value (AOV)", f"₹{aov:,.2f}")
-    st.metric("Refund / Return Rate", f"{refund_rate_display*100:.2f}%" if not np.isnan(refund_rate_display) else "N/A")
-
-st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs.")
+# footer caption
+st.caption("Dashboard styled to match the provided screenshots. Tell me any color/spacing tweaks and I'll update it.")
