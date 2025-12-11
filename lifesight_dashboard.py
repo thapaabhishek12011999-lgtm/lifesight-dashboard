@@ -247,18 +247,77 @@ def plot_roas_by_channel(df):
     return fig
 
 def plot_funnel_bars(df):
+    """
+    Horizontal funnel bar chart that shows:
+     - visible label: "<count>\n(<% of impressions>)"
+     - hover: count, % of impressions, % of previous step
+    """
     impressions = df["impressions"].sum()
     clicks = df["clicks"].sum()
+    # approximate product views & add-to-cart for mock data
     product_views = int(df["orders"].sum() * 3.5)
     add_to_cart = int(product_views * 0.25)
     purchases = int(df["orders"].sum())
+
     steps = pd.DataFrame({
-        "step":["Impressions","Clicks","Product Views","Add to Cart","Purchases"],
-        "value":[impressions, clicks, product_views, add_to_cart, purchases]
+        "step": ["Impressions", "Clicks", "Product Views", "Add to Cart", "Purchases"],
+        "value": [impressions, clicks, product_views, add_to_cart, purchases]
     })
-    fig = px.bar(steps, x="value", y="step", orientation="h", text=steps["value"].apply(lambda v: f"{v:,}"))
-    fig.update_layout(title_text="Marketing Funnel: Impression → Purchase", template="plotly_white", height=320, margin=dict(l=120,t=50,b=20))
-    fig.update_xaxes(title="Count")
+
+    # percent of impressions
+    if impressions > 0:
+        steps["pct_of_impr"] = steps["value"] / impressions * 100
+    else:
+        steps["pct_of_impr"] = 0.0
+
+    # percent vs previous step (useful to see drop-off)
+    pct_prev = []
+    prev_val = None
+    for v in steps["value"]:
+        if prev_val is None or prev_val == 0:
+            pct_prev.append(100.0 if prev_val is None else 0.0)
+        else:
+            pct_prev.append(v / prev_val * 100)
+        prev_val = v
+    steps["pct_prev"] = pct_prev
+
+    # label: count + percent of impressions (displayed on bar)
+    steps["label"] = steps.apply(lambda r: f"{int(r['value']):,}\n({r['pct_of_impr']:.2f}%)", axis=1)
+
+    # create horizontal bar chart
+    fig = px.bar(
+        steps.sort_values("value", ascending=False).iloc[::-1],  # keep order top->bottom as impressions->purchases
+        x="value",
+        y="step",
+        orientation="h",
+        text="label",
+    )
+
+    # attach customdata for hovertemplate (count, % of impressions, % of previous step)
+    customdata = np.column_stack((steps["value"], steps["pct_of_impr"], steps["pct_prev"]))
+    # Because we sorted earlier for plotting, align customdata to that order:
+    customdata = customdata[steps.sort_values("value", ascending=False).index.values[::-1]]
+
+    fig.update_traces(
+        textposition="outside",
+        marker_color="#93c5fd",  # leave color subtle; change if desired
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "Count: %{customdata[0]:,}<br>"
+            "% of impressions: %{customdata[1]:.2f}%<br>"
+            "% of previous step: %{customdata[2]:.2f}%<extra></extra>"
+        ),
+        customdata=customdata
+    )
+
+    fig.update_layout(
+        title_text="Marketing Funnel: Impression → Purchase",
+        template="plotly_white",
+        height=320,
+        margin=dict(l=120, t=50, b=20),
+        xaxis=dict(title="Count")
+    )
+
     return fig
 
 def plot_cac_trend(df):
