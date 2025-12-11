@@ -526,7 +526,7 @@ with tabs[1]:
     fig_funnel = plot_funnel_bars(subset)
     st.plotly_chart(fig_funnel, use_container_width=True)
 
-    st.markdown("**Campaign & Creative Diagnostics** (Top performing campaigns & creatives)")
+    st.markdown("**Campaign & Creative Diagnostics** (Top performers)")
     diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
         "spend":"sum","impressions":"sum","clicks":"sum","conversions":"sum","revenue":"sum"
     }).reset_index()
