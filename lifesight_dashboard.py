@@ -11,10 +11,10 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # -----------------------
-# Mock data generator (daily, 3 months before up to today)
+# Mock data generator (daily, 2 months before up to today)
 # -----------------------
 @st.cache_data
-def generate_mock_data(months_before=3, months_after=0, seed=42):
+def generate_mock_data(months_before=2, months_after=0, seed=42):
     np.random.seed(seed)
     today = pd.to_datetime(datetime.utcnow().date())
     start = today - pd.DateOffset(months=months_before)
@@ -672,3 +672,4 @@ with tabs[2]:
     st.metric("Refund / Return Rate", f"{refund_rate_display*100:.2f}%" if not np.isnan(refund_rate_display) else "N/A")
 
 st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs.")
+
