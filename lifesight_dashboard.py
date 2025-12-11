@@ -385,21 +385,20 @@ st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</str
 # Load data
 df = generate_mock_data(months_before=3, months_after=3)
 
-# FILTER ROW
-f1, f2, f3, f4, f5 = st.columns([1.2,1.2,1.2,1.6,0.4])
-with f1:
-    st.markdown("**Channel**")
-    channel = st.selectbox("", ["All"] + sorted(df["channel"].unique().tolist()), index=0, key="filter_channel")
-with f2:
-    st.markdown("**Campaign**")
-    campaign = st.selectbox("", ["All"] + sorted(df["campaign"].unique().tolist()), index=0, key="filter_campaign")
-with f3:
-    st.markdown("**Creative**")
-    creative = st.selectbox("", ["All"] + sorted(df["creative"].unique().tolist()), index=0, key="filter_creative")
-with f4:
-    st.markdown("**Date range**")
-    start_date = st.date_input("", value=df["date"].min().date(), key="filter_start")
-    end_date = st.date_input("", value=df["date"].max().date(), key="filter_end")
+# --- SIDEBAR FILTERS ---
+with st.sidebar:
+    st.header("Filters")
+
+    channel = st.selectbox("Channel", ["All"] + sorted(df["channel"].unique().tolist()), index=0)
+    campaign = st.selectbox("Campaign", ["All"] + sorted(df["campaign"].unique().tolist()), index=0)
+    creative = st.selectbox("Creative", ["All"] + sorted(df["creative"].unique().tolist()), index=0)
+
+    st.markdown("### Date range")
+    start_date = st.date_input("Start date", value=df["date"].min().date())
+    end_date = st.date_input("End date", value=df["date"].max().date())
+
+    st.markdown("---")
+    st.caption("Use filters to update the dashboard.")
 
 # subset data according to filters
 subset = df.copy()
