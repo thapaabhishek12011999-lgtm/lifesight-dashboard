@@ -1,10 +1,13 @@
-# lifesight_dashboard.py
+# lifesight_dashboard_improved.py
 """
-Lifesight - Marketing Performance Streamlit Dashboard (mock data)
-Generates mock data (3 months before -> 3 months after today) and renders
-an Executive Summary + CMO + CFO views using Plotly visuals.
-
-Structure and metrics follow the assignment brief. See uploaded doc for rationale. :contentReference[oaicite:1]{index=1}
+Improved Lifesight Streamlit dashboard:
+- Dark theme CSS
+- Horizontal filters (channel, campaign, creative, date range)
+- KPI cards with period-over-period deltas
+- Auto insight callout (semi-dynamic)
+- Download filtered CSV
+- Cohort LTV heatmap
+- Polished Plotly charts
 """
 
 import streamlit as st
@@ -14,9 +17,9 @@ from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
 
-# -----------------------
-# Utility: generate mock data
-# -----------------------
+# ---------------------------
+# Utilities & Mock data (same generator as before)
+# ---------------------------
 @st.cache_data
 def generate_mock_data(months_before=3, months_after=3, seed=42):
     np.random.seed(seed)
@@ -34,18 +37,17 @@ def generate_mock_data(months_before=3, months_after=3, seed=42):
 
     rows = []
     for d in dates:
-        # day-level seasonality & noise
         day_multiplier = 1 + 0.05 * np.sin((d.dayofyear % 30) / 30 * 2 * np.pi)
         for channel, params in channels.items():
-            for camp_i in range(1, 4):                # 3 campaigns
+            for camp_i in range(1, 4):
                 campaign = f"{channel}_Camp_{camp_i}"
-                for adset_i in range(1, 3):           # 2 adsets
+                for adset_i in range(1, 3):
                     ad_set = f"{campaign}_AS{adset_i}"
-                    for creative_i in range(1, 3):    # 2 creatives
+                    for creative_i in range(1, 3):
                         creative = f"{ad_set}_CR{creative_i}"
 
                         base_imp = {"Meta":120000, "Google":80000, "Amazon":40000, "TikTok":150000}[channel]
-                        impressions = max(0, int(np.random.normal(base_imp*0.02, base_imp*0.004)) )
+                        impressions = max(0, int(np.random.normal(base_imp*0.02, base_imp*0.004)))
                         impressions = int(impressions * day_multiplier * (1 + 0.01 * (camp_i-2)))
 
                         ctr = max(0.001, np.random.normal(params["ctr"], params["ctr"]*0.25))
@@ -54,10 +56,8 @@ def generate_mock_data(months_before=3, months_after=3, seed=42):
                         cv_rate = max(0.001, np.random.normal(params["cv_rate"], params["cv_rate"]*0.25))
                         conversions = np.random.binomial(clicks, cv_rate) if clicks>0 else 0
 
-                        # money metrics
                         cpc = max(0.05, np.random.normal(params["cpc"], params["cpc"]*0.12))
                         spend = round(clicks * cpc, 2)
-
                         aov = max(5, np.random.normal(params["aov"], params["aov"]*0.12))
                         revenue = round(conversions * aov, 2)
                         orders = conversions
@@ -109,21 +109,34 @@ def generate_mock_data(months_before=3, months_after=3, seed=42):
                             "funnel_step": "total"
                         })
     df = pd.DataFrame(rows)
-    # keep types tidy
     df["date"] = pd.to_datetime(df["date"])
     return df
 
-# -----------------------
-# Metric helpers
-# -----------------------
-def agg_period(df, start=None, end=None):
-    sub = df.copy()
-    if start is not None:
-        sub = sub[sub["date"] >= pd.to_datetime(start)]
-    if end is not None:
-        sub = sub[sub["date"] <= pd.to_datetime(end)]
-    return sub
+# ---------------------------
+# Styling (dark theme tweaks)
+# ---------------------------
+DARK_BG = "#0f172a"
+CARD_BG = "#0b1220"
+ACCENT = "#14B8A6"
+PURPLE = "#8B5CF6"
 
+def inject_css():
+    st.markdown(
+        f"""
+    <style>
+    .stApp {{ background-color: {DARK_BG}; color: #e6eef8; }}
+    .reportview-container .main .block-container{{ padding-top:1rem; padding-left:2rem; padding-right:2rem;}}
+    .kpi-card {{ background: linear-gradient(135deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding: 14px; border-radius: 12px; }}
+    .insight-box {{ background: #071024; padding:14px; border-radius:10px; color:#cbd5e1; }}
+    .filter-box .stSelectbox, .filter-box .stDateInput {{ background: #0b1220; border-radius:8px; color:#e6eef8; }}
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+# ---------------------------
+# Core metrics/helpers
+# ---------------------------
 def compute_exec_kpis(df):
     total_revenue = df["revenue"].sum()
     total_spend = df["spend"].sum()
@@ -147,14 +160,20 @@ def compute_exec_kpis(df):
         "profit": profit
     }
 
-# -----------------------
-# Plot builders (Plotly)
-# -----------------------
-def plot_spend_revenue_trend(df, date_col="date"):
-    ts = df.groupby(date_col).agg({"revenue":"sum","spend":"sum"}).reset_index()
+def period_summary(df, start_date, end_date, prev_start, prev_end):
+    # returns two dicts (current, previous)
+    cur = compute_exec_kpis(df[(df["date"]>=pd.to_datetime(start_date)) & (df["date"]<=pd.to_datetime(end_date))])
+    prev = compute_exec_kpis(df[(df["date"]>=pd.to_datetime(prev_start)) & (df["date"]<=pd.to_datetime(prev_end))])
+    return cur, prev
+
+# ---------------------------
+# Charts (Plotly)
+# ---------------------------
+def plot_spend_revenue_trend(df):
+    ts = df.groupby("date").agg({"revenue":"sum","spend":"sum"}).reset_index()
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=ts[date_col], y=ts["spend"], name="Spend", marker_color="#7f7fff", yaxis="y2", opacity=0.6))
-    fig.add_trace(go.Scatter(x=ts[date_col], y=ts["revenue"], name="Revenue", mode="lines+markers", line=dict(color="#0fb78a", width=3)))
+    fig.add_trace(go.Bar(x=ts["date"], y=ts["spend"], name="Spend", marker_color="#7f7fff", yaxis="y2", opacity=0.6))
+    fig.add_trace(go.Scatter(x=ts["date"], y=ts["revenue"], name="Revenue", mode="lines+markers", line=dict(color=ACCENT, width=3)))
     fig.update_layout(
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
         xaxis=dict(title=""),
@@ -162,7 +181,7 @@ def plot_spend_revenue_trend(df, date_col="date"):
         yaxis2=dict(title="Spend", overlaying="y", side="right", showgrid=False),
         margin=dict(l=40, r=40, t=10, b=40),
         template="plotly_dark",
-        height=350
+        height=340
     )
     return fig
 
@@ -170,8 +189,9 @@ def plot_roas_by_channel(df):
     agg = df.groupby("channel").agg({"revenue":"sum","spend":"sum"}).reset_index()
     agg["roas"] = agg["revenue"] / agg["spend"]
     agg = agg.sort_values("roas", ascending=False)
+    color_map = {"Meta":"#1D4ED8","Google":"#FACC15","Amazon":"#F59E0B","TikTok":"#F43F5E"}
     fig = px.bar(agg, x="roas", y="channel", orientation="h", text=agg["roas"].round(2), color="channel",
-                 color_discrete_map={"Meta":"#1D4ED8","Google":"#FACC15","Amazon":"#F59E0B","TikTok":"#F43F5E"})
+                 color_discrete_map=color_map)
     fig.update_layout(template="plotly_dark", height=320, margin=dict(l=80,r=20,t=30,b=20), showlegend=False)
     fig.update_xaxes(title="ROAS (Revenue / Spend)")
     return fig
@@ -204,110 +224,173 @@ def plot_contribution_waterfall(df):
     fig.update_layout(template="plotly_dark", height=360, margin=dict(l=40,r=20,t=20,b=20))
     return fig
 
-def plot_funnel_bars(df):
-    # funnel numbers aggregated
-    impressions = df["impressions"].sum()
-    clicks = df["clicks"].sum()
-    product_views = int(df["orders"].sum() * 3.5)  # fake but representative
-    add_to_cart = int(product_views * 0.25)
-    purchases = int(df["orders"].sum())
-    steps = pd.DataFrame({
-        "step":["Impressions","Clicks","Product Views","Add to Cart","Purchases"],
-        "value":[impressions, clicks, product_views, add_to_cart, purchases]
-    })
-    steps["pct"] = steps["value"] / steps["value"].iloc[0]
-    fig = px.bar(steps, y="step", x="value", orientation="h", text=steps["value"].apply(lambda v: f"{v:,}"))
-    fig.update_layout(template="plotly_dark", height=340, margin=dict(l=120,r=20,t=20,b=20))
-    fig.update_xaxes(showgrid=False)
+def cohort_ltv_heatmap(df, months=6):
+    # cohort by first purchase month -> cumulative revenue per customer over next N months
+    orders = df[df["orders"]>0].copy()
+    # Simulate first_purchase_date as date (in our mock this is same as order date)
+    orders["cohort_month"] = orders["date"].dt.to_period("M").dt.to_timestamp()
+    orders["order_month"] = orders["date"].dt.to_period("M").dt.to_timestamp()
+    # customer_id not present - so we use creative-level pseudo customers: sum revenue per cohort-month bucket as proxy
+    pivot = orders.groupby(["cohort_month","order_month"]).agg({"revenue":"sum","orders":"sum"}).reset_index()
+    pivot["months_since"] = ((pivot["order_month"].dt.year - pivot["cohort_month"].dt.year)*12 + (pivot["order_month"].dt.month - pivot["cohort_month"].dt.month))
+    # only months >=0 and <=months
+    pivot = pivot[(pivot["months_since"]>=0) & (pivot["months_since"]<months)]
+    heat = pivot.pivot_table(index="cohort_month", columns="months_since", values="revenue", aggfunc="sum").fillna(0)
+    # normalize by cohort size (orders) to get per-customer-like LTV (approx)
+    # for display, convert to thousands
+    fig = go.Figure(data=go.Heatmap(
+        z=heat.values,
+        x=[f"M+{c}" for c in heat.columns],
+        y=[d.strftime("%Y-%m") for d in heat.index],
+        colorscale="Viridis"
+    ))
+    fig.update_layout(template="plotly_dark", height=360, margin=dict(l=80,r=20,t=30,b=20))
     return fig
 
-# -----------------------
-# Streamlit layout
-# -----------------------
-st.set_page_config(page_title="Lifesight - Marketing Performance", layout="wide", initial_sidebar_state="collapsed")
-st.title("Marketing Performance Dashboard")
-st.markdown("**Executive Summary** — High-level KPIs linking marketing investment to company financial health.")
+# ---------------------------
+# App layout & UI
+# ---------------------------
+st.set_page_config(page_title="Lifesight - Marketing Performance (Improved)", layout="wide", initial_sidebar_state="collapsed")
+inject_css()
 
-# load data
 df = generate_mock_data(months_before=3, months_after=3)
 
-# Top controls
-with st.sidebar:
-    st.header("Filters & Controls")
-    ch_options = ["All"] + sorted(df["channel"].unique().tolist())
-    selected_channel = st.selectbox("Channel", ch_options, index=0)
+# Top filter row (applies to page)
+st.markdown("### Executive Summary")
+# build filter controls in a single horizontal row using columns
+fcol1, fcol2, fcol3, fcol4, fcol5 = st.columns([1.2,1.2,1.2,1.6,0.6])
+with fcol1:
+    channel_options = ["All"] + sorted(df["channel"].unique().tolist())
+    channel = st.selectbox("Channel", channel_options, index=0, key="f_channel")
+with fcol2:
+    campaign_options = ["All"] + sorted(df["campaign"].unique().tolist())
+    campaign = st.selectbox("Campaign", campaign_options, index=0, key="f_campaign")
+with fcol3:
+    creative_options = ["All"] + sorted(df["creative"].unique().tolist())
+    creative = st.selectbox("Creative", creative_options, index=0, key="f_creative")
+with fcol4:
     start_date = st.date_input("Start date", value=df["date"].min().date())
     end_date = st.date_input("End date", value=df["date"].max().date())
+with fcol5:
+    if st.button("Download CSV"):
+        filtered = df.copy()
+        if channel != "All":
+            filtered = filtered[filtered["channel"] == channel]
+        if campaign != "All":
+            filtered = filtered[filtered["campaign"] == campaign]
+        if creative != "All":
+            filtered = filtered[filtered["creative"] == creative]
+        filtered = filtered[(filtered["date"]>=pd.to_datetime(start_date)) & (filtered["date"]<=pd.to_datetime(end_date))]
+        csv = filtered.to_csv(index=False).encode("utf-8")
+        st.download_button("Download", data=csv, file_name="lifesight_filtered.csv", mime="text/csv")
 
-# page-scoped filter & subset
+# subset data
 subset = df.copy()
-if selected_channel != "All":
-    subset = subset[subset["channel"] == selected_channel]
+if channel != "All":
+    subset = subset[subset["channel"] == channel]
+if campaign != "All":
+    subset = subset[subset["campaign"] == campaign]
+if creative != "All":
+    subset = subset[subset["creative"] == creative]
 subset = subset[(subset["date"] >= pd.to_datetime(start_date)) & (subset["date"] <= pd.to_datetime(end_date))]
 
-# Tabs: Exec / CMO / CFO
-tab1, tab2, tab3 = st.tabs(["Executive Summary", "CMO View", "CFO View"])
+# If subset empty, show message
+if subset.empty:
+    st.warning("No data for selected filters / date range. Adjust filters.")
+    st.stop()
 
-# Executive Summary
+# compute current and previous period (same length) for PoP
+curr_start, curr_end = pd.to_datetime(start_date), pd.to_datetime(end_date)
+period_days = (curr_end - curr_start).days + 1
+prev_end = curr_start - pd.Timedelta(days=1)
+prev_start = prev_end - pd.Timedelta(days=period_days-1)
+
+cur_kpis, prev_kpis = period_summary(df, curr_start, curr_end, prev_start, prev_end)
+
+# KPI cards row
+kcols = st.columns([1.6,1,1,1,1], gap="large")
+def render_kpi(col, label, cur_value, prev_value, prefix="₹", is_pct=False):
+    # compute delta
+    if prev_value is None or prev_value==0 or np.isnan(prev_value):
+        delta = None
+    else:
+        try:
+            delta = (cur_value - prev_value) / abs(prev_value)
+        except:
+            delta = None
+    # format
+    if is_pct:
+        display = f"{cur_value*100:.1f}%"
+    else:
+        display = f"{prefix}{cur_value:,.0f}" if not np.isnan(cur_value) else "N/A"
+    if delta is None:
+        delta_display = "N/A"
+    else:
+        sign = "▲" if delta>0 else "▼"
+        color = "green" if delta>0 else "red"
+        delta_display = f"{sign} {abs(delta*100):.1f}%"
+    with col:
+        st.markdown(f"**{label}**")
+        st.markdown(f"<div class='kpi-card'><h2 style='margin:0;color:#e6eef8'>{display}</h2><div style='color:{'#14B8A6' if (delta and delta>0) else '#ef4444' if (delta and delta<0) else '#94a3b8'}; font-size:14px'>{delta_display if delta_display else ''}</div></div>", unsafe_allow_html=True)
+
+render_kpi(kcols[0], "Total Net Revenue", cur_kpis["total_revenue"], prev_kpis["total_revenue"])
+render_kpi(kcols[1], "Gross Profit Margin", cur_kpis["gross_margin"], prev_kpis["gross_margin"], prefix="", is_pct=True)
+render_kpi(kcols[2], "Marketing Efficiency Ratio (MER)", cur_kpis["mer"], prev_kpis["mer"], prefix="", is_pct=False)
+render_kpi(kcols[3], "LTV : CAC Ratio", cur_kpis["ltv_cac"], prev_kpis["ltv_cac"], prefix="", is_pct=False)
+render_kpi(kcols[4], "Total Profit", cur_kpis["profit"], prev_kpis["profit"])
+
+# Auto insight callout (semi-dynamic)
+insight_lines = []
+try:
+    rev_delta = None if np.isnan(prev_kpis["total_revenue"]) or prev_kpis["total_revenue"]==0 else (cur_kpis["total_revenue"] - prev_kpis["total_revenue"]) / prev_kpis["total_revenue"]
+    if rev_delta is not None:
+        if rev_delta > 0.05:
+            insight_lines.append(f"Revenue increased by {rev_delta*100:.1f}% vs previous period — strong growth.")
+        elif rev_delta < -0.05:
+            insight_lines.append(f"Revenue decreased by {abs(rev_delta)*100:.1f}% vs previous period — investigate conversion or channel performance.")
+    mer_delta = None if np.isnan(prev_kpis["mer"]) or prev_kpis["mer"]==0 else (cur_kpis["mer"] - prev_kpis["mer"]) / prev_kpis["mer"]
+    if mer_delta is not None and mer_delta < -0.05:
+        insight_lines.append("MER declined — spend is less efficient; consider pausing low-performing campaigns.")
+    # top channel by revenue change
+    ch_current = subset.groupby("channel")["revenue"].sum().sort_values(ascending=False)
+    if not ch_current.empty:
+        top_ch = ch_current.idxmax()
+        insight_lines.append(f"Top channel in the selected period: {top_ch}.")
+except Exception as e:
+    insight_lines.append("Insights not available due to limited data.")
+
+insight_text = "<br>".join(insight_lines) if insight_lines else "No significant changes detected."
+st.markdown(f"<div class='insight-box'><strong>Insights:</strong><br>{insight_text}</div>", unsafe_allow_html=True)
+
+# Revenue & Spend trend
+st.plotly_chart(plot_spend_revenue_trend(subset), use_container_width=True)
+
+# Tabs for CMO / CFO
+tab1, tab2 = st.tabs(["CMO View", "CFO View"])
 with tab1:
-    st.subheader("Executive Snapshot")
-    kpis = compute_exec_kpis(subset)
-
-    col1, col2, col3, col4, col5 = st.columns([2,1,1,1,1], gap="large")
-    col1.metric("Total Net Revenue", f"₹{kpis['total_revenue']:,.0f}")
-    col2.metric("Gross Profit Margin", f"{kpis['gross_margin']*100:.1f}%" if not np.isnan(kpis['gross_margin']) else "N/A")
-    col3.metric("Marketing Efficiency Ratio (MER)", f"{kpis['mer']}" if not np.isnan(kpis['mer']) else "N/A")
-    col4.metric("LTV : CAC Ratio", f"{kpis['ltv_cac']}" if not np.isnan(kpis['ltv_cac']) else "N/A")
-    col5.metric("Total Profit", f"₹{kpis['profit']:,.0f}")
-
-    st.plotly_chart(plot_spend_revenue_trend(subset, date_col="date"), use_container_width=True)
-
-# CMO View
-with tab2:
     st.subheader("CMO — Marketing Effectiveness")
-    # ROAS by channel
-    left, right = st.columns([1,1], gap="large")
-    with left:
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
         st.plotly_chart(plot_roas_by_channel(subset), use_container_width=True)
-    with right:
-        st.plotly_chart(plot_funnel_bars(subset), use_container_width=True)
-
-    # Campaign/creative diagnostics table (top performance)
-    st.markdown("#### Campaign & Creative Diagnostics")
+    with c2:
+        st.plotly_chart(plot_cac_trend(subset), use_container_width=True)
+    st.markdown("#### Campaign & Creative Diagnostics (top rows)")
     diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
         "spend":"sum","impressions":"sum","clicks":"sum","conversions":"sum","revenue":"sum"
     }).reset_index()
     diag["ctr"] = (diag["clicks"] / diag["impressions"]).round(4)
     diag["cvr"] = (diag["conversions"] / diag["clicks"]).round(4)
     diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], np.nan)
-    st.dataframe(diag.sort_values("revenue", ascending=False).head(30), use_container_width=True)
+    st.dataframe(diag.sort_values("revenue", ascending=False).head(50), use_container_width=True)
 
-# CFO View
-with tab3:
-    st.subheader("CFO — Financial Efficiency & Profitability")
-    col1, col2 = st.columns(2, gap="large")
-    with col1:
+with tab2:
+    st.subheader("CFO — Financial Efficiency")
+    w1, w2 = st.columns(2, gap="large")
+    with w1:
         st.plotly_chart(plot_contribution_waterfall(subset), use_container_width=True)
-    with col2:
+    with w2:
         st.plotly_chart(plot_cac_trend(subset), use_container_width=True)
+    st.markdown("#### LTV Cohort Heatmap (Revenue by cohort month)")
+    st.plotly_chart(cohort_ltv_heatmap(subset, months=6), use_container_width=True)
 
-    # ROI vs Budget mock
-    st.markdown("#### Marketing ROI vs Mock Budget")
-    budget = subset.groupby("date").agg(budget=("spend", lambda s: s.sum()*1.1), spend=("spend","sum"), revenue=("revenue","sum")).reset_index()
-    budget["roi"] = (budget["revenue"] - budget["spend"]) / budget["spend"]
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=budget["date"], y=budget["budget"], name="Budget (mock)", marker_color="#6b7280", opacity=0.6))
-    fig.add_trace(go.Bar(x=budget["date"], y=budget["spend"], name="Actual Spend", marker_color="#7f7fff", opacity=0.8))
-    fig.add_trace(go.Scatter(x=budget["date"], y=budget["roi"], name="ROI", yaxis="y2", line=dict(color="#10b981", width=3)))
-    fig.update_layout(template="plotly_dark", height=360, margin=dict(l=40,r=40,t=20,b=30),
-                      yaxis=dict(title="Amount"), yaxis2=dict(title="ROI", overlaying="y", side="right", tickformat=".0%"))
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("#### Cost Efficiency Metrics")
-    aov = subset["aov"].mean()
-    refund_rate = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
-    st.metric("Average Order Value (AOV)", f"₹{aov:,.2f}")
-    st.metric("Refund / Return Rate", f"{refund_rate*100:.2f}%" if not np.isnan(refund_rate) else "N/A")
-
-st.markdown("---")
-st.caption("Mock dataset generated for demonstration purposes. Dashboard design & metric selection follow the Lifesight assignment brief. :contentReference[oaicite:2]{index=2}")
+st.caption("Mock dataset and visualization for Lifesight assignment. Ask Zoro to add or tweak any visual/style.")
