@@ -1,5 +1,12 @@
 """
 Lifesight - Clean & Professional Marketing Performance Dashboard
+- Filters moved to sidebar
+- Compact KPI cards (metrics + deltas)
+- Funnel shows counts + % of impressions & hover shows % vs previous step
+- Cohort LTV removed from UI
+- Inverted delta colors for CPM & Refund rate (decrease = green)
+- Diagnostics table inside an expander
+- Export features removed
 """
 
 import streamlit as st
