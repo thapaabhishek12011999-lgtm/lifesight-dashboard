@@ -1,6 +1,6 @@
 """
 Lifesight-themed Marketing Performance Streamlit Dashboard
-Patched: Add HTML fallback downloads (Option A: include_plotlyjs='cdn')
+(Exports removed: PNG / PDF / HTML / CSV)
 """
 
 import streamlit as st
@@ -9,16 +9,7 @@ import numpy as np
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-import io
-import base64
 from pathlib import Path
-
-# Optional PDF library; use if available
-try:
-    from fpdf import FPDF
-    _HAS_FPDF = True
-except Exception:
-    _HAS_FPDF = False
 
 # -----------------------
 # Mock data generator (daily, 3 months before + 3 months after today)
@@ -307,113 +298,8 @@ def cohort_ltv_heatmap(df, months=6):
     return fig
 
 # -----------------------
-# Export utilities: PDF report & figure -> PNG bytes
+# NOTE: Export utilities removed
 # -----------------------
-def create_pdf_bytes(df, kpis, title="Dashboard Report"):
-    """
-    Returns PDF bytes containing title, KPIs and sample rows.
-    Uses fpdf if available, else returns a plain-text bytes fallback.
-    """
-    if _HAS_FPDF:
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=14)
-        pdf.cell(200, 10, txt=title, ln=True, align='C')
-        pdf.ln(6)
-        pdf.set_font("Arial", size=10)
-        for k, v in kpis.items():
-            pdf.cell(0, 8, txt=f"{k}: {v}", ln=True)
-        pdf.ln(4)
-        pdf.cell(0, 8, txt="Sample data (top 10 rows):", ln=True)
-        pdf.ln(2)
-        pdf.set_font("Arial", size=8)
-        for _, row in df.head(10).iterrows():
-            # keep each line short
-            text = ", ".join([f"{c}:{row[c]}" for c in ["date","channel","campaign","impressions","clicks","spend","revenue"] if c in row])
-            pdf.multi_cell(0, 6, txt=text)
-        out = io.BytesIO()
-        pdf.output(out)
-        return out.getvalue()
-    else:
-        # fallback: plain text "report" bytes
-        buf = io.StringIO()
-        buf.write(f"{title}\n\n")
-        buf.write("KPIs:\n")
-        for k, v in kpis.items():
-            buf.write(f"{k}: {v}\n")
-        buf.write("\nSample rows (top 10):\n")
-        buf.write(df.head(10).to_string(index=False))
-        return buf.getvalue().encode("utf-8")
-
-
-def fig_to_png_bytes(fig):
-    """
-    Attempt to convert a Plotly figure to PNG bytes.
-    Requires kaleido or orca available in the environment for fig.to_image to work.
-    Will return None if conversion fails.
-    """
-    try:
-        # fig.to_image uses kaleido by default if installed
-        img_bytes = fig.to_image(format="png")
-        return img_bytes
-    except Exception:
-        try:
-            import plotly.io as pio
-            img_bytes = pio.to_image(fig, format="png")
-            return img_bytes
-        except Exception:
-            return None
-
-# Helper to offer PNG download if available, else HTML fallback using CDN (Option A)
-import json
-
-def offer_plot_download(fig, png_filename, html_filename):
-    """
-    Try PNG first (kaleido). If not available, produce a small HTML file
-    that loads Plotly from the CDN and draws the figure using the figure JSON.
-    Safe for Streamlit Cloud (no pkgutil/get_data calls) and safe for f-strings.
-    """
-    img_bytes = fig_to_png_bytes(fig)
-    if img_bytes is not None:
-        st.download_button(f"⬇ Download {png_filename}", img_bytes, file_name=png_filename, mime="image/png")
-        return
-
-    # Build HTML fallback using fig.to_json() + CDN script
-    try:
-        fig_json = fig.to_json()
-
-        html = f"""<!doctype html>
-<html>
-<head>
-  <meta charset=\"utf-8\" />
-  <title>Plotly chart</title>
-  <!-- Plotly from CDN -->
-  <script src=\"https://cdn.plot.ly/plotly-latest.min.js\"></script>
-</head>
-<body>
-  <div id=\"plotly-div\" style=\"width:100%;height:100%;\"></div>
-  <script>
-    var fig = {fig_json};
-
-    try {{
-        Plotly.newPlot('plotly-div', fig.data, fig.layout || {{}});
-    }} catch(e) {{
-        Plotly.newPlot('plotly-div', fig);
-    }}
-  </script>
-</body>
-</html>"""
-
-        st.download_button(
-            f"⬇ Download {html_filename}",
-            html,
-            file_name=html_filename,
-            mime="text/html",
-        )
-    except Exception:
-        st.error("Unable to export chart as PNG or HTML in this environment.")
-        import logging
-        logging.exception("Chart export failed")
 
 # -----------------------
 # Streamlit app layout
@@ -548,7 +434,7 @@ st.markdown(f"<div class='insight'><strong>Insights:</strong><br>{'<br>'.join(in
 
 st.markdown("---")
 
-# TABS: Executive (already), CMO, CFO
+# TABS: Executive (Overview), CMO, CFO
 tabs = st.tabs(["Executive (Overview)", "CMO View (Marketing)", "CFO View (Finance)"])
 
 # ===== Executive Overview tab =====
@@ -557,9 +443,6 @@ with tabs[0]:
 
     fig_spend_rev = plot_spend_revenue_trend(subset)
     st.plotly_chart(fig_spend_rev, use_container_width=True)
-
-    # Download buttons: export PNG of this chart (if environment supports), else HTML fallback
-    offer_plot_download(fig_spend_rev, "revenue_spend_trend.png", "revenue_spend_trend.html")
 
     st.markdown("**Customer Acquisition & Retention** — New vs Returning revenue over time (quick view)")
     subset_agg = subset.groupby("date").agg({"revenue":"sum", "new_customers":"sum","returning_customers":"sum"}).reset_index()
@@ -571,24 +454,15 @@ with tabs[0]:
     fig_nr.update_layout(template="plotly_white", height=300, margin=dict(t=40))
     st.plotly_chart(fig_nr, use_container_width=True)
 
-    # Add report export (PDF)
-    report_bytes = create_pdf_bytes(subset, {
-        "Total Revenue (₹)": f"{cur_kpis['total_revenue']:,.2f}",
-        "Total Spend (₹)": f"{cur_kpis['total_spend']:,.2f}",
-        "MER": cur_kpis['mer'],
-        "Gross Margin": f"{cur_kpis['gross_margin']*100:.2f}%"
-    }, title="Lifesight - Executive Report")
-    st.download_button("⬇ Download Dashboard Report (PDF)", report_bytes, file_name="lifesight_dashboard_report.pdf", mime="application/pdf")
+    # Note: PDF report export removed
 
 # ===== CMO View =====
 with tabs[1]:
     st.header("CMO View — Marketing Effectiveness & Diagnostics")
 
-    # --- CMO KPI Scorecards (placed at the top) — HTML cards with delta vs prev
     st.subheader("CMO KPIs")
     c1, c2, c3, c4 = st.columns(4, gap="large")
 
-    # compute previous metrics for CMO KPIs
     prev_impressions = prev_subset["impressions"].sum()
     prev_clicks = prev_subset["clicks"].sum()
     prev_spend = prev_subset["spend"].sum()
@@ -636,12 +510,10 @@ with tabs[1]:
     st.markdown("**ROAS by Channel** — quick comparison to guide budget allocation")
     fig_roas = plot_roas_by_channel(subset)
     st.plotly_chart(fig_roas, use_container_width=True)
-    offer_plot_download(fig_roas, "roas_by_channel.png", "roas_by_channel.html")
 
     st.markdown("**Full Marketing Funnel** — identify drop-off points")
     fig_funnel = plot_funnel_bars(subset)
     st.plotly_chart(fig_funnel, use_container_width=True)
-    offer_plot_download(fig_funnel, "marketing_funnel.png", "marketing_funnel.html")
 
     st.markdown("**Campaign & Creative Diagnostics** (Top performing rows)")
     diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
@@ -651,19 +523,15 @@ with tabs[1]:
     diag["cvr"] = (diag["conversions"] / diag["clicks"]).round(4)
     diag["cpa"] = (diag["spend"] / diag["conversions"]).round(2).replace([np.inf, -np.inf], pd.NA)
     st.dataframe(diag.sort_values("revenue", ascending=False).head(100), use_container_width=True)
-    # allow downloading the diagnostics table as CSV
-    csv_buf = diag.sort_values("revenue", ascending=False).to_csv(index=False).encode("utf-8")
-    st.download_button("⬇ Download Diagnostics (CSV)", csv_buf, file_name="campaign_diagnostics.csv", mime="text/csv")
+    # Note: Diagnostics CSV export removed
 
 # ===== CFO View =====
 with tabs[2]:
     st.header("CFO View — Financial Efficiency & Profitability")
 
-    # --- CFO KPI Scorecards (placed at the top) — HTML cards with delta vs prev
     st.subheader("CFO KPIs")
     d1, d2, d3, d4 = st.columns(4, gap="large")
 
-    # compute previous metrics for CFO KPIs
     prev_revenue = prev_subset["revenue"].sum()
     prev_spend = prev_subset["spend"].sum()
     prev_cogs = prev_subset["cogs"].sum()
@@ -723,17 +591,14 @@ with tabs[2]:
 
     fig_contrib = plot_contribution_waterfall(subset)
     st.plotly_chart(fig_contrib, use_container_width=True)
-    offer_plot_download(fig_contrib, "contribution_waterfall.png", "contribution_waterfall.html")
 
     st.markdown("**CAC Trend & Cost Efficiency** — monitor CAC vs historical performance")
     fig_cac = plot_cac_trend(subset)
     st.plotly_chart(fig_cac, use_container_width=True)
-    offer_plot_download(fig_cac, "cac_trend.png", "cac_trend.html")
 
     st.markdown("**Cohort LTV (heatmap)** — revenue evolution for acquisition cohorts")
     fig_cohort = cohort_ltv_heatmap(subset, months=6)
     st.plotly_chart(fig_cohort, use_container_width=True)
-    offer_plot_download(fig_cohort, "cohort_ltv_heatmap.png", "cohort_ltv_heatmap.html")
 
     st.markdown("**Key financial KPIs**")
     aov = subset["aov"].mean()
