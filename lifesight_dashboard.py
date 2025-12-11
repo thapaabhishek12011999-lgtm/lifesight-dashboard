@@ -371,17 +371,17 @@ def offer_plot_download(fig, png_filename, html_filename):
     """
     Try PNG first (kaleido). If not available, produce a small HTML file
     that loads Plotly from the CDN and draws the figure using the figure JSON.
-    This avoids pkgutil/get_data errors on some hosts (e.g. Streamlit Cloud).
+    Safe for Streamlit Cloud (no pkgutil/get_data calls) and safe for f-strings.
     """
     img_bytes = fig_to_png_bytes(fig)
     if img_bytes is not None:
         st.download_button(f"⬇ Download {png_filename}", img_bytes, file_name=png_filename, mime="image/png")
         return
 
-    # Build HTML fallback using fig.to_json() + CDN script (Option A)
+    # Build HTML fallback using fig.to_json() + CDN script
     try:
-        fig_json = fig.to_json()   # JSON string
-        # Construct minimal HTML that loads Plotly from CDN and renders the JSON
+        fig_json = fig.to_json()
+
         html = f"""<!doctype html>
 <html>
 <head>
@@ -393,18 +393,17 @@ def offer_plot_download(fig, png_filename, html_filename):
 <body>
   <div id=\"plotly-div\" style=\"width:100%;height:100%;\"></div>
   <script>
-    // parse figure JSON and render
     var fig = {fig_json};
-    // In some cases Plotly expects data/layout separately
-    try {
-        Plotly.newPlot('plotly-div', fig.data, fig.layout || {});
-    } catch(e) {
-        // Fallback: if fig is already a full figure object
+
+    try {{
+        Plotly.newPlot('plotly-div', fig.data, fig.layout || {{}});
+    }} catch(e) {{
         Plotly.newPlot('plotly-div', fig);
-    }
+    }}
   </script>
 </body>
 </html>"""
+
         st.download_button(
             f"⬇ Download {html_filename}",
             html,
