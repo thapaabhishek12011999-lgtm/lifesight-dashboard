@@ -1,6 +1,5 @@
 """
-Lifesight-themed Marketing Performance Streamlit Dashboard
-(Exports removed; cohort heatmap removed from UI; inverted color for some KPI deltas)
+Marketing Performance Streamlit Dashboard
 """
 
 import streamlit as st
@@ -12,10 +11,10 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # -----------------------
-# Mock data generator (daily, 3 months before + 3 months after today)
+# Mock data generator (daily, 6 months before up to today)
 # -----------------------
 @st.cache_data
-def generate_mock_data(months_before=3, months_after=3, seed=42):
+def generate_mock_data(months_before=6, months_after=0, seed=42):
     np.random.seed(seed)
     today = pd.to_datetime(datetime.utcnow().date())
     start = today - pd.DateOffset(months=months_before)
@@ -382,8 +381,8 @@ inject_css()
 
 st.markdown(f"<div class='topband'><strong style='font-size:18px'>Lifesight</strong> — Marketing Performance Dashboard</div>", unsafe_allow_html=True)
 
-# Load data
-df = generate_mock_data(months_before=3, months_after=3)
+# Load data (now uses past 6 months)
+df = generate_mock_data(months_before=6, months_after=0)
 
 # --- SIDEBAR FILTERS ---
 with st.sidebar:
