@@ -1,4 +1,3 @@
-# lifesight_dashboard_v3_updated.py
 """
 Lifesight-themed Marketing Performance Streamlit Dashboard
 """
@@ -345,6 +344,7 @@ def create_pdf_bytes(df, kpis, title="Dashboard Report"):
         buf.write(df.head(10).to_string(index=False))
         return buf.getvalue().encode("utf-8")
 
+
 def fig_to_png_bytes(fig):
     """
     Attempt to convert a Plotly figure to PNG bytes.
@@ -362,6 +362,15 @@ def fig_to_png_bytes(fig):
             return img_bytes
         except Exception:
             return None
+
+# Helper to offer PNG download if available, else HTML fallback using CDN (Option A)
+def offer_plot_download(fig, png_filename, html_filename):
+    img_bytes = fig_to_png_bytes(fig)
+    if img_bytes is not None:
+        st.download_button(f"⬇ Download {png_filename}", img_bytes, file_name=png_filename, mime="image/png")
+    else:
+        html_str = fig.to_html(include_plotlyjs="cdn")
+        st.download_button(f"⬇ Download {html_filename}", html_str, file_name=html_filename, mime="text/html")
 
 # -----------------------
 # Streamlit app layout
@@ -506,12 +515,8 @@ with tabs[0]:
     fig_spend_rev = plot_spend_revenue_trend(subset)
     st.plotly_chart(fig_spend_rev, use_container_width=True)
 
-    # Download buttons: export PNG of this chart (if environment supports)
-    img_bytes = fig_to_png_bytes(fig_spend_rev)
-    if img_bytes is not None:
-        st.download_button("⬇ Download Trend PNG", img_bytes, file_name="revenue_spend_trend.png", mime="image/png")
-    else:
-        st.info("PNG export for chart not available in this environment (requires kaleido).")
+    # Download buttons: export PNG of this chart (if environment supports), else HTML fallback
+    offer_plot_download(fig_spend_rev, "revenue_spend_trend.png", "revenue_spend_trend.html")
 
     st.markdown("**Customer Acquisition & Retention** — New vs Returning revenue over time (quick view)")
     subset_agg = subset.groupby("date").agg({"revenue":"sum", "new_customers":"sum","returning_customers":"sum"}).reset_index()
@@ -588,16 +593,12 @@ with tabs[1]:
     st.markdown("**ROAS by Channel** — quick comparison to guide budget allocation")
     fig_roas = plot_roas_by_channel(subset)
     st.plotly_chart(fig_roas, use_container_width=True)
-    img_roas = fig_to_png_bytes(fig_roas)
-    if img_roas is not None:
-        st.download_button("⬇ Download ROAS Chart (PNG)", img_roas, file_name="roas_by_channel.png", mime="image/png")
+    offer_plot_download(fig_roas, "roas_by_channel.png", "roas_by_channel.html")
 
     st.markdown("**Full Marketing Funnel** — identify drop-off points")
     fig_funnel = plot_funnel_bars(subset)
     st.plotly_chart(fig_funnel, use_container_width=True)
-    img_funnel = fig_to_png_bytes(fig_funnel)
-    if img_funnel is not None:
-        st.download_button("⬇ Download Funnel Chart (PNG)", img_funnel, file_name="marketing_funnel.png", mime="image/png")
+    offer_plot_download(fig_funnel, "marketing_funnel.png", "marketing_funnel.html")
 
     st.markdown("**Campaign & Creative Diagnostics** (Top performing rows)")
     diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
@@ -679,23 +680,17 @@ with tabs[2]:
 
     fig_contrib = plot_contribution_waterfall(subset)
     st.plotly_chart(fig_contrib, use_container_width=True)
-    img_contrib = fig_to_png_bytes(fig_contrib)
-    if img_contrib is not None:
-        st.download_button("⬇ Download Contribution Chart (PNG)", img_contrib, file_name="contribution_waterfall.png", mime="image/png")
+    offer_plot_download(fig_contrib, "contribution_waterfall.png", "contribution_waterfall.html")
 
     st.markdown("**CAC Trend & Cost Efficiency** — monitor CAC vs historical performance")
     fig_cac = plot_cac_trend(subset)
     st.plotly_chart(fig_cac, use_container_width=True)
-    img_cac = fig_to_png_bytes(fig_cac)
-    if img_cac is not None:
-        st.download_button("⬇ Download CAC Chart (PNG)", img_cac, file_name="cac_trend.png", mime="image/png")
+    offer_plot_download(fig_cac, "cac_trend.png", "cac_trend.html")
 
     st.markdown("**Cohort LTV (heatmap)** — revenue evolution for acquisition cohorts")
     fig_cohort = cohort_ltv_heatmap(subset, months=6)
     st.plotly_chart(fig_cohort, use_container_width=True)
-    img_cohort = fig_to_png_bytes(fig_cohort)
-    if img_cohort is not None:
-        st.download_button("⬇ Download Cohort Heatmap (PNG)", img_cohort, file_name="cohort_ltv_heatmap.png", mime="image/png")
+    offer_plot_download(fig_cohort, "cohort_ltv_heatmap.png", "cohort_ltv_heatmap.html")
 
     st.markdown("**Key financial KPIs**")
     aov = subset["aov"].mean()
