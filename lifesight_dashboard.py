@@ -572,15 +572,8 @@ with tabs[1]:
     st.markdown("**ROAS by Channel** — quick comparison to guide budget allocation")
     fig_roas = plot_roas_by_channel(subset)
     st.plotly_chart(fig_roas, use_container_width=True)
-    img_roas = fig_to_png_bytes(fig_roas)
-    if img_roas is not None:
-
-    st.markdown("**Full Marketing Funnel** — identify drop-off points")
     fig_funnel = plot_funnel_bars(subset)
     st.plotly_chart(fig_funnel, use_container_width=True)
-    img_funnel = fig_to_png_bytes(fig_funnel)
-    if img_funnel is not None:
-        pass
 
     st.markdown("**Campaign & Creative Diagnostics** (Top performing rows)")
     diag = subset.groupby(["channel","campaign","ad_set","creative"]).agg({
@@ -661,26 +654,13 @@ with tabs[2]:
 
     fig_contrib = plot_contribution_waterfall(subset)
     st.plotly_chart(fig_contrib, use_container_width=True)
-    img_contrib = fig_to_png_bytes(fig_contrib)
-    if img_contrib is not None:
-
-    st.markdown("**CAC Trend & Cost Efficiency** — monitor CAC vs historical performance")
     fig_cac = plot_cac_trend(subset)
     st.plotly_chart(fig_cac, use_container_width=True)
-    img_cac = fig_to_png_bytes(fig_cac)
-    if img_cac is not None:
-
-    st.markdown("**Cohort LTV (heatmap)** — revenue evolution for acquisition cohorts")
     fig_cohort = cohort_ltv_heatmap(subset, months=6)
     st.plotly_chart(fig_cohort, use_container_width=True)
-    img_cohort = fig_to_png_bytes(fig_cohort)
-    if img_cohort is not None:
-
-    st.markdown("**Key financial KPIs**")
     aov = subset["aov"].mean()
     refund_rate_display = subset["returns"].sum() / subset["orders"].sum() if subset["orders"].sum()>0 else np.nan
     st.metric("Average Order Value (AOV)", f"₹{aov:,.2f}")
     st.metric("Refund / Return Rate", f"{refund_rate_display*100:.2f}%" if not np.isnan(refund_rate_display) else "N/A")
 
 st.caption("Dashboard structure, KPI selection and layout follow the Lifesight assignment brief and executive needs.")
-
